@@ -1,0 +1,6 @@
+{
+  "name": "SIRNA - Rekap Nilai Akademik Peserta Didik",
+  "description": "Sistem Informasi Rekap Nilai Akademik Peserta Didik (SIRNA) untuk SMP, SMA, SMK, dan MA. Kelola nilai akhir, rata-rata otomatis, peringkat kelas & paralel, dan portal nilai siswa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

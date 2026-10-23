@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // School Settings & Letterhead
+    match /schoolSettings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // System Accounts (login credentials)
+    match /systemAccounts/{accountId} {
+      allow read, write: if true;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Students / Peserta Didik
+    match /students/{studentId} {
+      allow read, write: if true;
+    }
+
+    // Classes / Rombel
+    match /classes/{classId} {
+      allow read, write: if true;
+    }
+
+    // Subjects / Mata Pelajaran
+    match /subjects/{subjectId} {
+      allow read, write: if true;
+    }
+
+    // Teachers / Pendidik
+    match /teachers/{teacherId} {
+      allow read, write: if true;
+    }
+
+    // Teaching Assignments / Pembagian Tugas
+    match /teachingAssignments/{assignmentId} {
+      allow read, write: if true;
+    }
+
+    // Academic Years / Tahun Pelajaran
+    match /academicYears/{yearId} {
+      allow read, write: if true;
+    }
+
+    // Semesters
+    match /semesters/{semesterId} {
+      allow read, write: if true;
+    }
+
+    // Grade Entries / Rekap Nilai
+    match /gradeEntries/{entryId} {
+      allow read, write: if true;
+    }
+
+    // Academic Summaries / Rekapitulasi Rapor
+    match /academicSummaries/{summaryId} {
+      allow read, write: if true;
+    }
+
+    // Audit Logs
+    match /auditLogs/{logId} {
+      allow read, write: if true;
+    }
+  }
+}

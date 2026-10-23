@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #0f172a;
+    background-color: #f8fafc;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@media print {
+  /* Strictly hide interactive chrome, footer, developer credits, and non-printable elements */
+  .no-print, nav, aside, header, footer, .developer-credit, .print-footer, button, .btn-print-hide {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body {
+    background-color: white !important;
+    color: black !important;
+    font-size: 11pt !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-page {
+    page-break-after: always;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  .print-table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .print-table th, .print-table td {
+    border: 1px solid #1e293b !important;
+    padding: 4px 8px !important;
+    font-size: 10pt !important;
+  }
+}
+
+/* Custom scrollbar for data tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

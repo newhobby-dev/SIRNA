@@ -1,0 +1,273 @@
+{
+  "entities": {
+    "SchoolSetting": {
+      "title": "SchoolSetting",
+      "description": "Pengaturan identitas sekolah, kop surat, skala penilaian, dan kebijakan kelulusan/peringkat",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string", "maxLength": 200 },
+        "npsn": { "type": "string", "maxLength": 20 },
+        "level": { "type": "string", "maxLength": 10 },
+        "address": { "type": "string", "maxLength": 300 },
+        "city": { "type": "string", "maxLength": 100 },
+        "province": { "type": "string", "maxLength": 100 },
+        "postalCode": { "type": "string", "maxLength": 10 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "maxLength": 100 },
+        "website": { "type": "string", "maxLength": 100 },
+        "logoUrl": { "type": "string", "maxLength": 500 },
+        "principalName": { "type": "string", "maxLength": 150 },
+        "principalNip": { "type": "string", "maxLength": 50 },
+        "minScore": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "passingScore": { "type": "number" },
+        "requireVerification": { "type": "boolean" },
+        "portalStudentEnabled": { "type": "boolean" },
+        "portalShowRank": { "type": "boolean" },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["schoolName", "npsn", "level", "principalName", "minScore", "maxScore"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Profil pengguna sistem dan peran RBAC (admin, guru mata pelajaran, wali kelas, siswa)",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 120 },
+        "name": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["admin", "teacher", "homeroom", "student"], "maxLength": 20 },
+        "teacherId": { "type": "string", "maxLength": 100 },
+        "studentId": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["email", "name", "role"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Data induk peserta didik",
+      "type": "object",
+      "properties": {
+        "nis": { "type": "string", "maxLength": 20 },
+        "nisn": { "type": "string", "maxLength": 20 },
+        "name": { "type": "string", "maxLength": 150 },
+        "gender": { "type": "string", "enum": ["L", "P"], "maxLength": 5 },
+        "cohort": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "enum": ["aktif", "alumni", "mutasi", "keluar"], "maxLength": 20 },
+        "currentClassId": { "type": "string", "maxLength": 100 },
+        "currentClassName": { "type": "string", "maxLength": 100 },
+        "portalPin": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["nis", "nisn", "name", "gender", "status"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "Data rombongan belajar / kelas",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 50 },
+        "name": { "type": "string", "maxLength": 100 },
+        "gradeLevel": { "type": "string", "maxLength": 20 },
+        "major": { "type": "string", "maxLength": 100 },
+        "academicYearId": { "type": "string", "maxLength": 50 },
+        "homeroomTeacherId": { "type": "string", "maxLength": 100 },
+        "homeroomTeacherName": { "type": "string", "maxLength": 150 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["code", "name", "gradeLevel", "academicYearId"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Data mata pelajaran sekolah",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "maxLength": 100 },
+        "gradeLevel": { "type": "string", "maxLength": 20 },
+        "isMandatory": { "type": "boolean" },
+        "weight": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["code", "name", "category", "isMandatory"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Data guru dan tenaga pendidik",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 150 },
+        "nip": { "type": "string", "maxLength": 50 },
+        "nuptk": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "userId": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "email"]
+    },
+    "TeachingAssignment": {
+      "title": "TeachingAssignment",
+      "description": "Penugasan guru mengampu mata pelajaran pada kelas dan semester tertentu",
+      "type": "object",
+      "properties": {
+        "teacherId": { "type": "string", "maxLength": 100 },
+        "teacherName": { "type": "string", "maxLength": 150 },
+        "subjectId": { "type": "string", "maxLength": 100 },
+        "subjectName": { "type": "string", "maxLength": 150 },
+        "classId": { "type": "string", "maxLength": 100 },
+        "className": { "type": "string", "maxLength": 100 },
+        "academicYearId": { "type": "string", "maxLength": 50 },
+        "semesterId": { "type": "string", "maxLength": 50 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["teacherId", "subjectId", "classId", "academicYearId", "semesterId"]
+    },
+    "AcademicYear": {
+      "title": "AcademicYear",
+      "description": "Tahun pelajaran (contoh: 2026/2027)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 30 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["name", "isActive"]
+    },
+    "Semester": {
+      "title": "Semester",
+      "description": "Periode semester akademik",
+      "type": "object",
+      "properties": {
+        "academicYearId": { "type": "string", "maxLength": 50 },
+        "semesterType": { "type": "string", "enum": ["1", "2"], "maxLength": 10 },
+        "name": { "type": "string", "maxLength": 100 },
+        "startDate": { "type": "string", "maxLength": 30 },
+        "gradeSubmissionDeadline": { "type": "string", "maxLength": 30 },
+        "verificationDate": { "type": "string", "maxLength": 30 },
+        "finalizationDate": { "type": "string", "maxLength": 30 },
+        "publicationDate": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["preparation", "input", "verification", "finalized", "published", "closed"], "maxLength": 30 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["academicYearId", "semesterType", "name", "status", "isActive"]
+    },
+    "GradeEntry": {
+      "title": "GradeEntry",
+      "description": "Entri nilai akhir mata pelajaran per peserta didik yang diunggah guru mandiri",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "maxLength": 100 },
+        "studentNis": { "type": "string", "maxLength": 20 },
+        "studentNisn": { "type": "string", "maxLength": 20 },
+        "studentName": { "type": "string", "maxLength": 150 },
+        "classId": { "type": "string", "maxLength": 100 },
+        "className": { "type": "string", "maxLength": 100 },
+        "subjectId": { "type": "string", "maxLength": 100 },
+        "subjectName": { "type": "string", "maxLength": 150 },
+        "teacherId": { "type": "string", "maxLength": 100 },
+        "teacherName": { "type": "string", "maxLength": 150 },
+        "academicYearId": { "type": "string", "maxLength": 50 },
+        "semesterId": { "type": "string", "maxLength": 50 },
+        "finalScore": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "submitted", "revision_requested", "final", "published"], "maxLength": 30 },
+        "revisionNote": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["studentId", "classId", "subjectId", "teacherId", "academicYearId", "semesterId", "finalScore", "status"]
+    },
+    "AcademicSummary": {
+      "title": "AcademicSummary",
+      "description": "Ringkasan rekapitulasi rata-rata semester dan peringkat peserta didik",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "maxLength": 100 },
+        "studentNis": { "type": "string", "maxLength": 20 },
+        "studentNisn": { "type": "string", "maxLength": 20 },
+        "studentName": { "type": "string", "maxLength": 150 },
+        "classId": { "type": "string", "maxLength": 100 },
+        "className": { "type": "string", "maxLength": 100 },
+        "gradeLevel": { "type": "string", "maxLength": 20 },
+        "academicYearId": { "type": "string", "maxLength": 50 },
+        "semesterId": { "type": "string", "maxLength": 50 },
+        "averageScore": { "type": "number" },
+        "totalScore": { "type": "number" },
+        "subjectCount": { "type": "number" },
+        "completedCount": { "type": "number" },
+        "mandatoryCount": { "type": "number" },
+        "isComplete": { "type": "boolean" },
+        "classRank": { "type": "number" },
+        "parallelRank": { "type": "number" },
+        "status": { "type": "string", "maxLength": 30 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["studentId", "classId", "academicYearId", "semesterId", "averageScore", "isComplete"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Pencatatan riwayat audit aktivitas dan perubahan nilai",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "userId": { "type": "string", "maxLength": 100 },
+        "userName": { "type": "string", "maxLength": 150 },
+        "userRole": { "type": "string", "maxLength": 30 },
+        "action": { "type": "string", "maxLength": 50 },
+        "target": { "type": "string", "maxLength": 200 },
+        "details": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["timestamp", "userId", "userName", "userRole", "action", "details"]
+    }
+  },
+  "firestore": {
+    "/schoolSettings/{settingId}": {
+      "schema": "SchoolSetting",
+      "description": "Pengaturan sekolah tunggal dan preferensi global"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Profil pengguna terdaftar beserta peran RBAC"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Data induk peserta didik"
+    },
+    "/classes/{classId}": {
+      "schema": "Class",
+      "description": "Data rombongan belajar / kelas"
+    },
+    "/subjects/{subjectId}": {
+      "schema": "Subject",
+      "description": "Data mata pelajaran kurikulum"
+    },
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Data guru pendidik"
+    },
+    "/teachingAssignments/{assignmentId}": {
+      "schema": "TeachingAssignment",
+      "description": "Penugasan mengajar guru pada kelas dan semester"
+    },
+    "/academicYears/{academicYearId}": {
+      "schema": "AcademicYear",
+      "description": "Daftar tahun pelajaran"
+    },
+    "/semesters/{semesterId}": {
+      "schema": "Semester",
+      "description": "Daftar semester akademik dan status periode"
+    },
+    "/gradeEntries/{gradeEntryId}": {
+      "schema": "GradeEntry",
+      "description": "Nilai akhir mata pelajaran per peserta didik"
+    },
+    "/academicSummaries/{summaryId}": {
+      "schema": "AcademicSummary",
+      "description": "Ringkasan rekapitulasi rata-rata semester dan peringkat"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Catatan audit log aktivitas sistem"
+    }
+  }
+}
