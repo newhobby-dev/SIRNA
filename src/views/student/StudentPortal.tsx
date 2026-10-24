@@ -37,9 +37,9 @@ export const StudentPortal: React.FC = () => {
     classes,
   } = useAcademic();
 
-  // Verification Form State
-  const [nisnInput, setNisnInput] = useState('0081234561'); // Pre-fill with sample student for instant demonstration
-  const [pinInput, setPinInput] = useState('123456');
+  // Verification Form State (empty initially)
+  const [nisnInput, setNisnInput] = useState('');
+  const [pinInput, setPinInput] = useState('');
   const [verifiedStudent, setVerifiedStudent] = useState<Student | null>(null);
   const [verificationError, setVerificationError] = useState('');
   const [attemptCount, setAttemptCount] = useState(0);
@@ -60,7 +60,7 @@ export const StudentPortal: React.FC = () => {
     setVerificationError('');
 
     if (attemptCount >= 5) {
-      setVerificationError('Terlalu banyak percobaan yang gagal. Silakan tunggu beberapa saat atau hubungi administrator sekolah.');
+      setVerificationError('Terlalu banyak percobaan yang gagal. Silakan tunggu beberapa saat atau hubungi pihak sekolah.');
       return;
     }
 
@@ -68,10 +68,12 @@ export const StudentPortal: React.FC = () => {
 
     setTimeout(() => {
       const cleanNisn = nisnInput.trim();
-      const cleanPin = pinInput.trim();
+      const cleanSecret = pinInput.trim();
 
-      // Look up student by NISN and verify PIN (Two-Factor authentication as mandated in Section 3 & 13)
-      const found = students.find(s => s.nisn === cleanNisn && s.portalPin === cleanPin);
+      // Look up student by NISN and verify using portalPin or NIS
+      const found = students.find(
+        s => s.nisn === cleanNisn && (s.portalPin === cleanSecret || s.nis === cleanSecret)
+      );
 
       if (found) {
         setVerifiedStudent(found);
@@ -85,8 +87,7 @@ export const StudentPortal: React.FC = () => {
         }
       } else {
         setAttemptCount(prev => prev + 1);
-        // Generic message that does not leak whether NISN exists (Section 3 security requirement)
-        setVerificationError('Verifikasi identitas gagal. Periksa kembali NISN dan PIN akses yang diberikan oleh pihak sekolah.');
+        setVerificationError('Verifikasi identitas gagal. Periksa kembali NISN dan PIN/NIS yang dimasukkan.');
       }
       setIsVerifying(false);
     }, 400);
@@ -214,7 +215,7 @@ export const StudentPortal: React.FC = () => {
                     maxLength={15}
                     value={nisnInput}
                     onChange={(e) => setNisnInput(e.target.value)}
-                    placeholder="Masukkan 10 digit NISN Anda..."
+                    placeholder="Masukkan NISN..."
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 font-mono text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -222,22 +223,22 @@ export const StudentPortal: React.FC = () => {
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1.5">
-                  PIN Akses Portal Sekolah (6 Digit) *
+                  PIN / NIS *
                 </label>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="password"
                     required
-                    maxLength={10}
+                    maxLength={15}
                     value={pinInput}
                     onChange={(e) => setPinInput(e.target.value)}
-                    placeholder="Masukkan PIN yang diberikan sekolah..."
+                    placeholder="Masukkan PIN / NIS..."
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 font-mono text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Untuk keamanan privasi, NISN dipadukan dengan PIN akses sekolah (contoh bawaan: 123456).
+                  Masukkan PIN akses portal atau Nomor Induk Siswa (NIS) Anda.
                 </p>
               </div>
 
@@ -252,7 +253,7 @@ export const StudentPortal: React.FC = () => {
             </form>
 
             <div className="pt-4 border-t border-slate-100 text-center text-[11px] text-slate-500">
-              Butuh bantuan dengan NISN atau PIN akses Anda? Hubungi bagian Kurikulum atau Wali Kelas sekolah.
+              Butuh bantuan dengan NISN atau PIN/NIS akses Anda? Hubungi bagian Kurikulum atau pihak sekolah.
             </div>
           </div>
         </div>

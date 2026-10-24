@@ -292,30 +292,19 @@ export const RankingsView: React.FC = () => {
           </table>
         </div>
 
-        {/* Official Signatures */}
-        <div className="mt-8 pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-xs text-slate-800">
-          <div className="text-center">
-            <p className="text-slate-500">Mengetahui,</p>
-            <p className="font-semibold text-slate-900">Kepala {schoolSettings.schoolName}</p>
-            <div className="h-20 flex items-end justify-center">
-              <span className="font-bold underline text-slate-950">{schoolSettings.principalName}</span>
-            </div>
-            <p className="text-[11px] text-slate-600">NIP. {schoolSettings.principalNip}</p>
-          </div>
-
-          <div className="text-center">
+        {/* Official Signatures - Kepala Sekolah di sebelah kanan bawah surat */}
+        <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end text-xs text-slate-800">
+          <div className="text-center min-w-[240px]">
             <p className="text-slate-500">
               {schoolSettings.city}, {formatIndonesianDate(new Date())}
             </p>
             <p className="font-semibold text-slate-900">
-              {rankingType === 'class' ? `Wali Kelas ${currentClass?.name}` : 'Wakil Kepala Sekolah Bidang Kurikulum'}
+              Kepala {schoolSettings.schoolName}
             </p>
             <div className="h-20 flex items-end justify-center">
-              <span className="font-bold underline text-slate-950">
-                {rankingType === 'class' ? (currentClass?.homeroomTeacherName || '...........................................') : 'Aris Wicaksono, S.Pd.'}
-              </span>
+              <span className="font-bold underline text-slate-950">{schoolSettings.principalName}</span>
             </div>
-            <p className="text-[11px] text-slate-600">NIP. 19850415 201001 1 018</p>
+            <p className="text-[11px] text-slate-600">NIP. {schoolSettings.principalNip}</p>
           </div>
         </div>
       </div>
