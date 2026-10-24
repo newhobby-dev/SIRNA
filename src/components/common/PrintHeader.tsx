@@ -49,7 +49,8 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({ documentTitle, subTitl
             {schoolSettings.schoolName}
           </h1>
           <p className="text-xs text-slate-700 mt-0.5">
-            {schoolSettings.address}, {schoolSettings.city}, {schoolSettings.province} {schoolSettings.postalCode}
+            {schoolSettings.address}, {schoolSettings.city}, {schoolSettings.province}{' '}
+            {schoolSettings.postalCode ? (schoolSettings.postalCode.toLowerCase().includes('pos') ? schoolSettings.postalCode : `Kode Pos ${schoolSettings.postalCode}`) : ''}
           </p>
           <p className="text-[11px] text-slate-600">
             Telepon: {schoolSettings.phone} | NPSN: {schoolSettings.npsn} | Email: {schoolSettings.email}
