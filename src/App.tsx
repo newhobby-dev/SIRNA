@@ -40,7 +40,7 @@ import { HomeroomMonitoring } from './views/homeroom/HomeroomMonitoring';
 import { StudentPortal } from './views/student/StudentPortal';
 
 const MainContent: React.FC = () => {
-  const { role, isAuthenticated, switchDemoRole } = useAuth();
+  const { role, isAuthenticated, signOut, switchDemoRole } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>('admin_dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPublicPortal, setIsPublicPortal] = useState(false);
@@ -56,9 +56,6 @@ const MainContent: React.FC = () => {
         break;
       case 'teacher':
         setActiveTab('teacher_dashboard');
-        break;
-      case 'homeroom':
-        setActiveTab('homeroom_dashboard');
         break;
       case 'student':
         setActiveTab('student_portal');
@@ -156,17 +153,23 @@ const MainContent: React.FC = () => {
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}
         onNavigate={setActiveTab}
+        onExitStudentPortal={async () => {
+          setIsPublicPortal(false);
+          await signOut();
+        }}
       />
 
       <div className="flex-1 flex">
-        <Sidebar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-        />
+        {role !== 'student' && (
+          <Sidebar
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+          />
+        )}
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full transition-all">
+        <main className={`flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full transition-all ${role === 'student' ? 'max-w-5xl' : ''}`}>
           {renderView()}
         </main>
       </div>

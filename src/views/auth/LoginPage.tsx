@@ -6,13 +6,8 @@ import {
   Eye,
   EyeOff,
   LogIn,
-  Shield,
-  BookOpen,
-  Users,
   Search,
-  CheckCircle2,
   AlertCircle,
-  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAcademic } from '../../context/AcademicContext';
@@ -22,11 +17,11 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onOpenStudentPortal }) => {
-  const { loginWithCredentials, signInWithGoogle, switchDemoRole } = useAuth();
+  const { loginWithCredentials } = useAuth();
   const { schoolSettings } = useAcademic();
 
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('AdminGanteng93');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -49,28 +44,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onOpenStudentPortal }) => 
     }
   };
 
-  const handleQuickFill = (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-    setErrorMessage('');
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex flex-col justify-between py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full mx-auto my-auto space-y-6">
         {/* Brand & School Logo */}
-        <div className="text-center space-y-2">
-          <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center font-bold text-white shadow-xl shadow-blue-900/50 mx-auto">
+        <div className="text-center space-y-1.5">
+          <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center font-bold text-white shadow-xl shadow-blue-900/50 mx-auto mb-2">
             <GraduationCap className="w-9 h-9" />
           </div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-            Sistem Informasi Rekap Nilai Akademik
+          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-widest">
+            SIRNA
           </h1>
-          <p className="text-sm font-semibold text-blue-300">
-            {schoolSettings.schoolName}
+          <p className="text-xs sm:text-sm font-bold text-blue-200 tracking-wider uppercase whitespace-nowrap">
+            SISTEM INFORMASI REKAP NILAI AKADEMIK
           </p>
-          <p className="text-xs text-slate-400">
-            {schoolSettings.address}, {schoolSettings.city}
+          <p className="text-sm font-semibold text-blue-300 pt-0.5">
+            {schoolSettings.schoolName}
           </p>
         </div>
 
@@ -102,7 +91,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onOpenStudentPortal }) => 
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Contoh: admin"
+                  placeholder="Masukkan username Anda..."
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
                 />
               </div>
@@ -154,50 +143,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onOpenStudentPortal }) => 
             </button>
           </form>
 
-          {/* Quick Credential Test Buttons */}
-          <div className="pt-3 border-t border-slate-100">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-              Akun Default (Klik untuk Coba Cepat):
-            </span>
-            <div className="grid grid-cols-3 gap-2 text-[11px]">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('admin', 'AdminGanteng93')}
-                className="p-2 rounded-xl border border-purple-200 bg-purple-50/70 hover:bg-purple-100 text-purple-900 font-bold text-center transition"
-              >
-                <div>Admin</div>
-                <div className="text-[9px] font-normal text-purple-700 font-mono">admin</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickFill('gurubk', 'BKSelaras26')}
-                className="p-2 rounded-xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100 text-amber-900 font-bold text-center transition"
-              >
-                <div>Guru BK</div>
-                <div className="text-[9px] font-normal text-amber-700 font-mono">gurubk</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickFill('gurumapel', 'GuruJuara26')}
-                className="p-2 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-900 font-bold text-center transition"
-              >
-                <div>Guru Mapel</div>
-                <div className="text-[9px] font-normal text-emerald-700 font-mono">gurumapel</div>
-              </button>
-            </div>
-          </div>
-
           {/* Direct Student Portal Access */}
           <div className="pt-3 border-t border-slate-100 text-center">
             <button
               type="button"
               onClick={onOpenStudentPortal}
-              className="w-full py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800 font-bold text-xs transition flex items-center justify-center gap-2"
+              className="w-full py-3 px-4 rounded-xl border-2 border-blue-500 bg-blue-50 hover:bg-blue-100 text-blue-800 font-extrabold text-sm tracking-wide transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
             >
-              <Search className="w-4 h-4 text-blue-600" />
-              <span>Buka Portal Mandiri Nilai Peserta Didik (NISN)</span>
+              <Search className="w-4 h-4 text-blue-600 stroke-[2.5]" />
+              <span>PORTAL NILAI PESERTA DIDIK</span>
             </button>
           </div>
         </div>

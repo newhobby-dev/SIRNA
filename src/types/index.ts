@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'bk' | 'teacher' | 'homeroom' | 'student';
+export type UserRole = 'admin' | 'bk' | 'teacher' | 'student';
 
 export type SemesterType = '1' | '2';
 

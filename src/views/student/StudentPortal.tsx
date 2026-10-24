@@ -377,7 +377,7 @@ export const StudentPortal: React.FC = () => {
       {/* Official Report Card Sheet (Printed and Screen) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 print-page">
         <PrintHeader
-          documentTitle="SURAT KETERANGAN REKAPITULASI HASIL BELAJAR PESERTA DIDIK"
+          documentTitle="REKAPITULASI HASIL BELAJAR PESERTA DIDIK"
           subTitle={`Tahun Pelajaran: ${schoolSettings.schoolName} | ${activeSemester?.name || ''}`}
         />
 
@@ -495,29 +495,6 @@ export const StudentPortal: React.FC = () => {
           </div>
         )}
 
-        {/* Official Signatures */}
-        <div className="mt-10 pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-xs text-slate-800">
-          <div className="text-center">
-            <p className="text-slate-500">Mengetahui,</p>
-            <p className="font-semibold text-slate-900">Orang Tua / Wali Peserta Didik</p>
-            <div className="h-20 flex items-end justify-center">
-              <span className="font-bold underline text-slate-950">...........................................</span>
-            </div>
-          </div>
-
-          <div className="text-center">
-            <p className="text-slate-500">
-              {schoolSettings.city}, {formatIndonesianDate(activeSemester?.publicationDate || new Date())}
-            </p>
-            <p className="font-semibold text-slate-900">
-              Kepala {schoolSettings.schoolName}
-            </p>
-            <div className="h-20 flex items-end justify-center">
-              <span className="font-bold underline text-slate-950">{schoolSettings.principalName}</span>
-            </div>
-            <p className="text-[11px] text-slate-600">NIP. {schoolSettings.principalNip}</p>
-          </div>
-        </div>
       </div>
 
       {/* Historical Progress: Ranking displayed inline on the same row as each semester (Directive 5) */}

@@ -192,25 +192,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                   Sistem & Keamanan
                 </p>
                 <div className="space-y-1">
+                  <button onClick={() => handleSelect('admin_users')} className={navItemClass('admin_users')}>
+                    <Users className="w-4 h-4 text-indigo-400" />
+                    <span>Manajemen Akun</span>
+                  </button>
                   <button onClick={() => handleSelect('admin_settings')} className={navItemClass('admin_settings')}>
                     <Settings className="w-4 h-4 text-slate-400" />
                     <span>Pengaturan Sekolah & Kop</span>
                   </button>
                   <button onClick={() => handleSelect('admin_cloud')} className={navItemClass('admin_cloud')}>
                     <Cloud className="w-4 h-4 text-sky-400" />
-                    <span>Koneksi Cloud (Firebase)</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_users')} className={navItemClass('admin_users')}>
-                    <Users className="w-4 h-4 text-indigo-400" />
-                    <span>Manajemen Akun</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_audit')} className={navItemClass('admin_audit')}>
-                    <ShieldAlert className="w-4 h-4 text-red-400" />
-                    <span>Audit Aktivitas</span>
+                    <span>Koneksi Cloud</span>
                   </button>
                   <button onClick={() => handleSelect('admin_backup')} className={navItemClass('admin_backup')}>
                     <Database className="w-4 h-4 text-blue-300" />
                     <span>Backup & Restore</span>
+                  </button>
+                  <button onClick={() => handleSelect('admin_audit')} className={navItemClass('admin_audit')}>
+                    <ShieldAlert className="w-4 h-4 text-red-400" />
+                    <span>Audit Aktivitas</span>
                   </button>
                 </div>
               </div>
@@ -311,34 +311,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
             </>
           )}
 
-          {/* Wali Kelas Navigation */}
-          {role === 'homeroom' && (
-            <>
-              <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Wali Kelas
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('homeroom_dashboard')} className={navItemClass('homeroom_dashboard')}>
-                    <LayoutDashboard className="w-4 h-4 text-amber-400" />
-                    <span>Dashboard Perwalian</span>
-                  </button>
-                  <button onClick={() => handleSelect('homeroom_leger')} className={navItemClass('homeroom_leger')}>
-                    <FileSpreadsheet className="w-4 h-4 text-blue-400" />
-                    <span>Buku Leger Nilai</span>
-                  </button>
-                  <button onClick={() => handleSelect('homeroom_rankings')} className={navItemClass('homeroom_rankings')}>
-                    <Award className="w-4 h-4 text-yellow-300" />
-                    <span>Peringkat Kelas</span>
-                  </button>
-                  <button onClick={() => handleSelect('homeroom_monitoring')} className={navItemClass('homeroom_monitoring')}>
-                    <UserMinus className="w-4 h-4 text-rose-400" />
-                    <span>Pendampingan Akademik</span>
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
 
           {/* Siswa Navigation */}
           {role === 'student' && (
