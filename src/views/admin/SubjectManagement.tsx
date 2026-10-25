@@ -106,7 +106,11 @@ export const SubjectManagement: React.FC = () => {
                 <td className="py-3 px-3 font-mono font-bold text-slate-800">{subj.code}</td>
                 <td className="py-3 px-4 font-bold text-slate-900">{subj.name}</td>
                 <td className="py-3 px-3 text-slate-600">{subj.category}</td>
-                <td className="py-3 px-3 text-slate-600">{subj.gradeLevel}</td>
+                <td className="py-3 px-3">
+                  <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                    {subj.gradeLevel === 'Semua' ? 'Semua Kelas' : `Kelas ${subj.gradeLevel}`}
+                  </span>
+                </td>
                 <td className="py-3 px-3 text-center">
                   <span
                     className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -182,17 +186,59 @@ export const SubjectManagement: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Kelompok / Kategori</label>
+                <label className="block font-semibold text-slate-700 mb-1">Kelompok / Kategori *</label>
                 <select
                   value={formData.category || 'Kelompok A (Umum)'}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-medium"
                 >
                   <option value="Kelompok A (Umum)">Kelompok A (Umum)</option>
                   <option value="Kelompok B (Umum)">Kelompok B (Umum)</option>
                   <option value="Kelompok C (Peminatan)">Kelompok C (Peminatan)</option>
                   <option value="Muatan Lokal">Muatan Lokal</option>
                 </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Tingkat Kelas (Peruntukan) *
+                  </label>
+                  <select
+                    value={formData.gradeLevel || 'Semua'}
+                    onChange={(e) => setFormData({ ...formData, gradeLevel: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-900"
+                  >
+                    <option value="Semua">Semua Tingkat (Seluruh Kelas)</option>
+                    <option value="10">Kelas 10 (Fase E / X)</option>
+                    <option value="11">Kelas 11 (Fase F / XI)</option>
+                    <option value="12">Kelas 12 (Fase F / XII)</option>
+                    <option value="7">Kelas 7 (Fase D / VII)</option>
+                    <option value="8">Kelas 8 (Fase D / VIII)</option>
+                    <option value="9">Kelas 9 (Fase D / IX)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Pilih tingkat kelas berapakah mapel ini diajarkan
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Bobot Nilai / SKS *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    required
+                    value={formData.weight || 1}
+                    onChange={(e) => setFormData({ ...formData, weight: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Bobot perhitungan nilai akhir (bawaan: 1)
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center gap-3 pt-2">

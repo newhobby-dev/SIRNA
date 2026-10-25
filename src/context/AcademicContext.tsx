@@ -105,18 +105,78 @@ const AcademicContext = createContext<AcademicContextType | undefined>(undefined
 
 export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { profile } = useAuth();
-  const [schoolSettings, setSchoolSettings] = useState<SchoolSetting>(defaultSchoolSetting);
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>(defaultAcademicYears);
+  const [schoolSettings, setSchoolSettings] = useState<SchoolSetting>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_school_settings');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultSchoolSetting;
+  });
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_academic_years');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultAcademicYears;
+  });
   const [selectedYearId, setSelectedYearId] = useState<string>('ay_2026_2027');
-  const [semesters, setSemesters] = useState<Semester[]>(defaultSemesters);
+  const [semesters, setSemesters] = useState<Semester[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_semesters');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultSemesters;
+  });
   const [selectedSemesterId, setSelectedSemesterId] = useState<string>('sem_2026_1');
-  const [classes, setClasses] = useState<ClassRoom[]>(defaultClasses);
-  const [subjects, setSubjects] = useState<Subject[]>(defaultSubjects);
-  const [teachers, setTeachers] = useState<Teacher[]>(defaultTeachers);
-  const [teachingAssignments, setTeachingAssignments] = useState<TeachingAssignment[]>(defaultTeachingAssignments);
-  const [students, setStudents] = useState<Student[]>(defaultStudents);
-  const [gradeEntries, setGradeEntries] = useState<GradeEntry[]>(initialGradeEntries);
-  const [academicSummaries, setAcademicSummaries] = useState<AcademicSummary[]>(defaultSummaries);
+  const [classes, setClasses] = useState<ClassRoom[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_classes');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultClasses;
+  });
+  const [subjects, setSubjects] = useState<Subject[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_subjects');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultSubjects;
+  });
+  const [teachers, setTeachers] = useState<Teacher[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_teachers');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultTeachers;
+  });
+  const [teachingAssignments, setTeachingAssignments] = useState<TeachingAssignment[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_assignments');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultTeachingAssignments;
+  });
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_students');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultStudents;
+  });
+  const [gradeEntries, setGradeEntries] = useState<GradeEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_grades');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return initialGradeEntries;
+  });
+  const [academicSummaries, setAcademicSummaries] = useState<AcademicSummary[]>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_summaries');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultSummaries;
+  });
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(new Date());
@@ -139,11 +199,14 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             console.log('Seeding initial school dataset to Firestore...');
             await seedInitialDataToFirestore(false);
           } else {
-            settingsSnap.forEach(docSnap => {
-              if (docSnap.id === 'current' || !schoolSettings.id) {
-                setSchoolSettings(docSnap.data() as SchoolSetting);
-              }
-            });
+            const currentDoc = settingsSnap.docs.find(d => d.id === 'current') || settingsSnap.docs[0];
+            if (currentDoc) {
+              const data = currentDoc.data() as SchoolSetting;
+              setSchoolSettings(data);
+              try {
+                localStorage.setItem('sirna_school_settings', JSON.stringify(data));
+              } catch {}
+            }
 
             // Parallel fetch all data collections to ensure state matches Cloud database
             const [yearsSnap, semsSnap, classesSnap, subjsSnap, teachersSnap, assignsSnap, studentsSnap, gradesSnap, sumsSnap] = await Promise.all([
@@ -158,15 +221,51 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               getDocs(collection(db, 'academicSummaries')).catch(() => null),
             ]);
 
-            if (yearsSnap && !yearsSnap.empty) setAcademicYears(yearsSnap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicYear)));
-            if (semsSnap && !semsSnap.empty) setSemesters(semsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Semester)));
-            if (classesSnap && !classesSnap.empty) setClasses(classesSnap.docs.map(d => ({ ...d.data(), id: d.id } as ClassRoom)));
-            if (subjsSnap && !subjsSnap.empty) setSubjects(subjsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Subject)));
-            if (teachersSnap && !teachersSnap.empty) setTeachers(teachersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Teacher)));
-            if (assignsSnap && !assignsSnap.empty) setTeachingAssignments(assignsSnap.docs.map(d => ({ ...d.data(), id: d.id } as TeachingAssignment)));
-            if (studentsSnap && !studentsSnap.empty) setStudents(studentsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Student)));
-            if (gradesSnap && !gradesSnap.empty) setGradeEntries(gradesSnap.docs.map(d => ({ ...d.data(), id: d.id } as GradeEntry)));
-            if (sumsSnap && !sumsSnap.empty) setAcademicSummaries(sumsSnap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicSummary)));
+            if (yearsSnap && !yearsSnap.empty) {
+              const items = yearsSnap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicYear));
+              setAcademicYears(items);
+              try { localStorage.setItem('sirna_academic_years', JSON.stringify(items)); } catch {}
+            }
+            if (semsSnap && !semsSnap.empty) {
+              const items = semsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Semester));
+              setSemesters(items);
+              try { localStorage.setItem('sirna_semesters', JSON.stringify(items)); } catch {}
+            }
+            if (classesSnap && !classesSnap.empty) {
+              const items = classesSnap.docs.map(d => ({ ...d.data(), id: d.id } as ClassRoom));
+              setClasses(items);
+              try { localStorage.setItem('sirna_classes', JSON.stringify(items)); } catch {}
+            }
+            if (subjsSnap && !subjsSnap.empty) {
+              const items = subjsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Subject));
+              setSubjects(items);
+              try { localStorage.setItem('sirna_subjects', JSON.stringify(items)); } catch {}
+            }
+            if (teachersSnap && !teachersSnap.empty) {
+              const items = teachersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Teacher));
+              setTeachers(items);
+              try { localStorage.setItem('sirna_teachers', JSON.stringify(items)); } catch {}
+            }
+            if (assignsSnap && !assignsSnap.empty) {
+              const items = assignsSnap.docs.map(d => ({ ...d.data(), id: d.id } as TeachingAssignment));
+              setTeachingAssignments(items);
+              try { localStorage.setItem('sirna_assignments', JSON.stringify(items)); } catch {}
+            }
+            if (studentsSnap && !studentsSnap.empty) {
+              const items = studentsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Student));
+              setStudents(items);
+              try { localStorage.setItem('sirna_students', JSON.stringify(items)); } catch {}
+            }
+            if (gradesSnap && !gradesSnap.empty) {
+              const items = gradesSnap.docs.map(d => ({ ...d.data(), id: d.id } as GradeEntry));
+              setGradeEntries(items);
+              try { localStorage.setItem('sirna_grades', JSON.stringify(items)); } catch {}
+            }
+            if (sumsSnap && !sumsSnap.empty) {
+              const items = sumsSnap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicSummary));
+              setAcademicSummaries(items);
+              try { localStorage.setItem('sirna_summaries', JSON.stringify(items)); } catch {}
+            }
           }
         }
       } catch (err) {
@@ -187,8 +286,12 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Setup onSnapshot listeners for collections with safe error handling
     const unsubSettings = onSnapshot(collection(db, 'schoolSettings'), (snap) => {
       if (!snap.empty) {
-        const docData = snap.docs[0].data() as SchoolSetting;
+        const currentDoc = snap.docs.find(d => d.id === 'current') || snap.docs[0];
+        const docData = currentDoc.data() as SchoolSetting;
         setSchoolSettings(docData);
+        try {
+          localStorage.setItem('sirna_school_settings', JSON.stringify(docData));
+        } catch {}
         setNetworkOnline(true);
       }
     }, handleSnapshotErr('schoolSettings'));
@@ -319,8 +422,11 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const batch = writeBatch(db);
 
-      // School Settings
-      batch.set(doc(db, 'schoolSettings', 'current'), defaultSchoolSetting);
+      // School Settings: preserve custom school settings if already present
+      const settingToSave = (!forceReset && schoolSettings.schoolName && schoolSettings.schoolName !== 'SMA NEGERI 1 NUSANTARA')
+        ? schoolSettings
+        : defaultSchoolSetting;
+      batch.set(doc(db, 'schoolSettings', 'current'), settingToSave);
 
       // Academic Years
       defaultAcademicYears.forEach(y => batch.set(doc(db, 'academicYears', y.id), y));
@@ -351,7 +457,10 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       await batch.commit();
 
-      setSchoolSettings(defaultSchoolSetting);
+      setSchoolSettings(settingToSave);
+      try {
+        localStorage.setItem('sirna_school_settings', JSON.stringify(settingToSave));
+      } catch {}
       setAcademicYears(defaultAcademicYears);
       setSemesters(defaultSemesters);
       setTeachers(defaultTeachers);
@@ -696,8 +805,11 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateSchoolSettings = async (settings: Partial<SchoolSetting>) => {
     const updated = { ...schoolSettings, ...settings, updatedAt: new Date().toISOString() };
     setSchoolSettings(updated);
+    try {
+      localStorage.setItem('sirna_school_settings', JSON.stringify(updated));
+    } catch {}
     await setDoc(doc(db, 'schoolSettings', 'current'), updated);
-    await logAuditAction('UPDATE_SCHOOL_SETTINGS', 'Pengaturan Sekolah', 'Pembaruan identitas atau kebijakan sekolah');
+    await logAuditAction('UPDATE_SCHOOL_SETTINGS', 'Pengaturan Sekolah', `Pembaruan identitas sekolah: ${updated.schoolName}`);
   };
 
   // CRUD for Student
