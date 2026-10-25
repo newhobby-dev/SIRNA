@@ -100,8 +100,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarOpen, 
   };
 
   return (
-    <header className="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40 no-print w-full max-w-full overflow-hidden">
-      <div className="px-2.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2 sm:gap-4 w-full max-w-full">
+    <header className="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40 no-print w-full">
+      <div className="px-2.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2 sm:gap-4 w-full">
         {/* Left: Hamburger & Brand */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 sm:flex-initial">
           <button
@@ -240,60 +240,66 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarOpen, 
                 </button>
 
                 {isRoleMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-2 z-50 text-xs">
-                    <div className="px-3 py-1.5 border-b border-slate-800 text-[11px] text-slate-400 font-semibold uppercase tracking-wider flex items-center justify-between">
-                      <span>Ganti Peran (Pengujian)</span>
-                      <Sparkles className="w-3 h-3 text-amber-400" />
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsRoleMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-2 z-50 text-xs">
+                      <div className="px-3 py-1.5 border-b border-slate-800 text-[11px] text-slate-400 font-semibold uppercase tracking-wider flex items-center justify-between">
+                        <span>Ganti Peran (Pengujian)</span>
+                        <Sparkles className="w-3 h-3 text-amber-400" />
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          switchDemoRole('admin');
+                          setIsRoleMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-800 ${
+                          role === 'admin' ? 'text-blue-400 font-bold bg-slate-800/50' : 'text-slate-300'
+                        }`}
+                      >
+                        <Shield className="w-4 h-4 text-purple-400" />
+                        <div>
+                          <div>Administrator Sekolah</div>
+                          <div className="text-[10px] text-slate-500 font-normal">Akses penuh seluruh modul & kontrol</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          switchDemoRole('bk');
+                          setIsRoleMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-800 ${
+                          role === 'bk' ? 'text-amber-400 font-bold bg-slate-800/50' : 'text-slate-300'
+                        }`}
+                      >
+                        <Users className="w-4 h-4 text-amber-400" />
+                        <div>
+                          <div>Guru BK (Bimbingan Konseling)</div>
+                          <div className="text-[10px] text-slate-500 font-normal">Leger nilai, peringkat, & pemantauan</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          switchDemoRole('teacher', 't_aris');
+                          setIsRoleMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-800 ${
+                          role === 'teacher' ? 'text-blue-400 font-bold bg-slate-800/50' : 'text-slate-300'
+                        }`}
+                      >
+                        <BookOpen className="w-4 h-4 text-emerald-400" />
+                        <div>
+                          <div>Guru Mata Pelajaran</div>
+                          <div className="text-[10px] text-slate-500 font-normal">Aris Wicaksono, S.Pd. (Matematika)</div>
+                        </div>
+                      </button>
                     </div>
-
-                    <button
-                      onClick={() => {
-                        switchDemoRole('admin');
-                        setIsRoleMenuOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-800 ${
-                        role === 'admin' ? 'text-blue-400 font-bold bg-slate-800/50' : 'text-slate-300'
-                      }`}
-                    >
-                      <Shield className="w-4 h-4 text-purple-400" />
-                      <div>
-                        <div>Administrator Sekolah</div>
-                        <div className="text-[10px] text-slate-500 font-normal">Akses penuh seluruh modul & kontrol</div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        switchDemoRole('bk');
-                        setIsRoleMenuOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-800 ${
-                        role === 'bk' ? 'text-amber-400 font-bold bg-slate-800/50' : 'text-slate-300'
-                      }`}
-                    >
-                      <Users className="w-4 h-4 text-amber-400" />
-                      <div>
-                        <div>Guru BK (Bimbingan Konseling)</div>
-                        <div className="text-[10px] text-slate-500 font-normal">Leger nilai, peringkat, & pemantauan</div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        switchDemoRole('teacher', 't_aris');
-                        setIsRoleMenuOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-800 ${
-                        role === 'teacher' ? 'text-blue-400 font-bold bg-slate-800/50' : 'text-slate-300'
-                      }`}
-                    >
-                      <BookOpen className="w-4 h-4 text-emerald-400" />
-                      <div>
-                        <div>Guru Mata Pelajaran</div>
-                        <div className="text-[10px] text-slate-500 font-normal">Aris Wicaksono, S.Pd. (Matematika)</div>
-                      </div>
-                    </button>
-                  </div>
+                  </>
                 )}
               </div>
 
@@ -310,23 +316,29 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarOpen, 
                 </button>
 
                 {isUserMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-2 z-50 text-xs">
-                    <div className="px-3 py-2 border-b border-slate-800">
-                      <p className="font-semibold text-white truncate">{profile?.name || 'Pengguna'}</p>
-                      <p className="text-[11px] text-slate-400 truncate">{profile?.email || 'admin@sman1nusantara.sch.id'}</p>
-                    </div>
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsUserMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-2 z-50 text-xs">
+                      <div className="px-3 py-2 border-b border-slate-800">
+                        <p className="font-semibold text-white truncate">{profile?.name || 'Pengguna'}</p>
+                        <p className="text-[11px] text-slate-400 truncate">{profile?.email || 'admin@sman1nusantara.sch.id'}</p>
+                      </div>
 
-                    <button
-                      onClick={async () => {
-                        setIsUserMenuOpen(false);
-                        await signOut();
-                      }}
-                      className="w-full text-left px-3 py-2 text-rose-300 hover:bg-slate-800 flex items-center gap-2 font-medium cursor-pointer"
-                    >
-                      <LogOut className="w-4 h-4 text-rose-400" />
-                      <span>Keluar Sistem (Sign Out)</span>
-                    </button>
-                  </div>
+                      <button
+                        onClick={async () => {
+                          setIsUserMenuOpen(false);
+                          await signOut();
+                        }}
+                        className="w-full text-left px-3 py-2 text-rose-300 hover:bg-slate-800 flex items-center gap-2 font-medium cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 text-rose-400" />
+                        <span>Keluar Sistem (Sign Out)</span>
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             </>
