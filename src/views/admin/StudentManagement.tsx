@@ -7,7 +7,6 @@ import {
   Download,
   Edit2,
   Trash2,
-  KeyRound,
   CheckCircle,
   XCircle,
   X,
@@ -52,7 +51,6 @@ export const StudentManagement: React.FC = () => {
     cohort: '2026',
     status: 'aktif',
     currentClassId: classes[0]?.id || '',
-    portalPin: '123456',
   });
   const [formError, setFormError] = useState('');
 
@@ -157,7 +155,6 @@ export const StudentManagement: React.FC = () => {
       cohort: '2026',
       status: 'aktif',
       currentClassId: classes[0]?.id || '',
-      portalPin: Math.floor(100000 + Math.random() * 900000).toString(),
     });
     setFormError('');
     setIsModalOpen(true);
@@ -206,7 +203,7 @@ export const StudentManagement: React.FC = () => {
       status: (formData.status as StudentStatus) || 'aktif',
       currentClassId: formData.currentClassId || '',
       currentClassName: selectedClass?.name || 'Belum Terdaftar',
-      portalPin: formData.portalPin || '123456',
+      portalPin: editingStudent?.portalPin || '',
       classHistory: editingStudent?.classHistory || [
         {
           academicYearId: selectedClass?.academicYearId || 'ay_2026_2027',
@@ -237,7 +234,6 @@ export const StudentManagement: React.FC = () => {
       'Kelas Saat Ini': s.currentClassName,
       'Angkatan': s.cohort,
       'Status': s.status.toUpperCase(),
-      'PIN Akses Portal': s.portalPin,
     }));
 
     exportExcelWorkbook('Data_Peserta_Didik_SIRNA', [
@@ -384,7 +380,6 @@ export const StudentManagement: React.FC = () => {
                 <th className="py-3 px-4">Nama Lengkap (A-Z)</th>
                 <th className="py-3 px-3 w-16 text-center">L/P</th>
                 <th className="py-3 px-3">Rombel / Kelas</th>
-                <th className="py-3 px-3">PIN Portal</th>
                 <th className="py-3 px-3 text-center">Status</th>
                 <th className="py-3 px-3 text-right">Aksi</th>
               </tr>
@@ -392,7 +387,7 @@ export const StudentManagement: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     Tidak ada peserta didik yang sesuai kriteria pencarian.
                   </td>
                 </tr>
@@ -413,12 +408,6 @@ export const StudentManagement: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3 px-3 font-medium text-slate-700">{student.currentClassName}</td>
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-1.5 font-mono text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/60 w-fit">
-                        <KeyRound className="w-3 h-3 text-amber-500" />
-                        <span>{student.portalPin}</span>
-                      </div>
-                    </td>
                     <td className="py-3 px-3 text-center">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         student.status === 'aktif'
@@ -562,36 +551,20 @@ export const StudentManagement: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Status Siswa
-                  </label>
-                  <select
-                    value={formData.status || 'aktif'}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value as StudentStatus })}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="aktif">Aktif</option>
-                    <option value="alumni">Alumni</option>
-                    <option value="mutasi">Mutasi</option>
-                    <option value="keluar">Keluar</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    PIN Akses Portal Nilai (6 Digit)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.portalPin || ''}
-                    onChange={(e) => setFormData({ ...formData, portalPin: e.target.value })}
-                    placeholder="123456"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                  />
-                </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Status Siswa
+                </label>
+                <select
+                  value={formData.status || 'aktif'}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value as StudentStatus })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="aktif">Aktif</option>
+                  <option value="alumni">Alumni</option>
+                  <option value="mutasi">Mutasi</option>
+                  <option value="keluar">Keluar</option>
+                </select>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">

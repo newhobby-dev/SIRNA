@@ -134,69 +134,74 @@ export const UserManagement: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 font-bold uppercase text-[10px] text-slate-600 tracking-wider">
-              <th className="py-3 px-3 w-12 text-center">No.</th>
-              <th className="py-3 px-3 w-36">Username</th>
-              <th className="py-3 px-4">Nama Lengkap</th>
-              <th className="py-3 px-4">Peran (Role)</th>
-              <th className="py-3 px-4">Alamat Email</th>
-              <th className="py-3 px-3 w-28 text-center">Kata Sandi</th>
-              <th className="py-3 px-3 w-24 text-center">Status</th>
-              <th className="py-3 px-3 text-right">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {systemAccounts.map((acc: SystemAccount, idx: number) => {
-              const badge = getRoleBadge(acc.role);
-              return (
-                <tr key={acc.id} className="hover:bg-slate-50 transition">
-                  <td className="py-3 px-3 text-center text-slate-400 font-mono">{idx + 1}</td>
-                  <td className="py-3 px-3 font-mono font-bold text-slate-900">{acc.username}</td>
-                  <td className="py-3 px-4 font-semibold text-slate-800">{acc.name}</td>
-                  <td className="py-3 px-4">
-                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.color}`}>
-                      {badge.label}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-slate-600">{acc.email}</td>
-                  <td className="py-3 px-3 text-center">
-                    <span className="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/80">
-                      ••••••••
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-center">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      acc.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
-                    }`}>
-                      {acc.isActive ? 'Aktif' : 'Nonaktif'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => handleOpenEdit(acc)}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition"
-                        title="Ubah Akun"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(acc.id, acc.username)}
-                        disabled={acc.username === 'admin'}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30 transition"
-                        title="Hapus Akun"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="block sm:hidden px-3.5 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-500 font-medium">
+          ↔ Geser ke kanan/kiri untuk melihat kolom & tombol aksi
+        </div>
+        <div className="overflow-x-auto w-full">
+          <table className="w-full text-left text-xs min-w-[780px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 font-bold uppercase text-[10px] text-slate-600 tracking-wider">
+                <th className="py-3 px-3 w-12 text-center">No.</th>
+                <th className="py-3 px-3 w-36">Username</th>
+                <th className="py-3 px-4">Nama Lengkap</th>
+                <th className="py-3 px-4">Peran (Role)</th>
+                <th className="py-3 px-4">Alamat Email</th>
+                <th className="py-3 px-3 w-28 text-center">Kata Sandi</th>
+                <th className="py-3 px-3 w-24 text-center">Status</th>
+                <th className="py-3 px-3 text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {systemAccounts.map((acc: SystemAccount, idx: number) => {
+                const badge = getRoleBadge(acc.role);
+                return (
+                  <tr key={acc.id} className="hover:bg-slate-50 transition">
+                    <td className="py-3 px-3 text-center text-slate-400 font-mono">{idx + 1}</td>
+                    <td className="py-3 px-3 font-mono font-bold text-slate-900">{acc.username}</td>
+                    <td className="py-3 px-4 font-semibold text-slate-800">{acc.name}</td>
+                    <td className="py-3 px-4">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.color}`}>
+                        {badge.label}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-slate-600">{acc.email}</td>
+                    <td className="py-3 px-3 text-center">
+                      <span className="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/80">
+                        ••••••••
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        acc.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {acc.isActive ? 'Aktif' : 'Nonaktif'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => handleOpenEdit(acc)}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                          title="Ubah Akun"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(acc.id, acc.username)}
+                          disabled={acc.username === 'admin'}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30 transition cursor-pointer"
+                          title="Hapus Akun"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Modal Add / Edit Account */}

@@ -68,6 +68,13 @@ interface AcademicContextType {
   finalizeAssignmentGrades: (assignmentId: string) => Promise<void>;
   publishSemesterGrades: (semesterId: string) => Promise<void>;
   recalculateAveragesAndRanks: (semesterId: string) => Promise<void>;
+  saveManualRanks: (updates: {
+    studentId: string;
+    semesterId: string;
+    classRank?: number | null;
+    parallelRank?: number | null;
+    eligibleRank?: number | null;
+  }[]) => Promise<void>;
 
   // Management CRUD
   updateSchoolSettings: (settings: Partial<SchoolSetting>) => Promise<void>;
@@ -666,6 +673,8 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const isComplete = mandatorySubjectIds.size > 0 && completedMandatoryIds.size >= mandatorySubjectIds.size;
 
       const summaryId = `${semesterId}_${student.id}`;
+      const existingSummary = academicSummaries.find(s => s.id === summaryId);
+
       const summary: AcademicSummary = {
         id: summaryId,
         studentId: student.id,
@@ -683,8 +692,10 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         completedCount,
         mandatoryCount: mandatorySubjects.length,
         isComplete,
-        classRank: null, // Will be computed next
-        parallelRank: null, // Will be computed next
+        // Manual input ranks (Directive 1e: Diinput manual oleh Admin, tidak otomatis hitung)
+        classRank: existingSummary?.classRank ?? null,
+        parallelRank: existingSummary?.parallelRank ?? null,
+        eligibleRank: existingSummary?.eligibleRank ?? (student.eligibleRank ?? null),
         status: isComplete ? 'final' : 'incomplete',
         updatedAt: new Date().toISOString(),
       };
@@ -692,40 +703,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       summariesToRank.push(summary);
     }
 
-    // 3. Hitung Peringkat Kelas (Competition Ranking 1224)
-    // Dikelompokkan per classId
-    const classGroups = new Map<string, AcademicSummary[]>();
-    summariesToRank.forEach(s => {
-      const list = classGroups.get(s.classId) || [];
-      list.push(s);
-      classGroups.set(s.classId, list);
-    });
-
-    classGroups.forEach((groupSummaries) => {
-      const rankedGroup = assignCompetitionRanks(groupSummaries);
-      rankedGroup.forEach(r => {
-        const found = summariesToRank.find(s => s.id === r.id);
-        if (found) found.classRank = r.rank;
-      });
-    });
-
-    // 4. Hitung Peringkat Paralel (Competition Ranking per Tingkat/gradeLevel)
-    const levelGroups = new Map<string, AcademicSummary[]>();
-    summariesToRank.forEach(s => {
-      const list = levelGroups.get(s.gradeLevel) || [];
-      list.push(s);
-      levelGroups.set(s.gradeLevel, list);
-    });
-
-    levelGroups.forEach((groupSummaries) => {
-      const rankedGroup = assignCompetitionRanks(groupSummaries);
-      rankedGroup.forEach(r => {
-        const found = summariesToRank.find(s => s.id === r.id);
-        if (found) found.parallelRank = r.rank;
-      });
-    });
-
-    // 5. Simpan summary ke Firestore
+    // 3. Simpan summary ke Firestore (tanpa timpa peringkat manual)
     try {
       const batch = writeBatch(db);
       summariesToRank.forEach(sum => {
@@ -740,6 +718,105 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'academicSummaries');
+    }
+  };
+
+  // Manual input ranking handler for Admin (Directive 1e)
+  const saveManualRanks = async (
+    updates: {
+      studentId: string;
+      semesterId: string;
+      classRank?: number | null;
+      parallelRank?: number | null;
+      eligibleRank?: number | null;
+    }[]
+  ) => {
+    setIsSyncing(true);
+    try {
+      const batch = writeBatch(db);
+      const updatedSummaries: AcademicSummary[] = [];
+      const updatedStudents: Student[] = [];
+
+      for (const up of updates) {
+        const summaryId = `${up.semesterId}_${up.studentId}`;
+        const existing = academicSummaries.find(s => s.id === summaryId);
+        const student = students.find(s => s.id === up.studentId);
+        const studentClass = classes.find(c => c.id === student?.currentClassId);
+
+        const newSummary: AcademicSummary = existing
+          ? {
+              ...existing,
+              classRank: up.classRank !== undefined ? up.classRank : existing.classRank,
+              parallelRank: up.parallelRank !== undefined ? up.parallelRank : existing.parallelRank,
+              eligibleRank: up.eligibleRank !== undefined ? up.eligibleRank : (existing.eligibleRank ?? null),
+              updatedAt: new Date().toISOString(),
+            }
+          : {
+              id: summaryId,
+              studentId: up.studentId,
+              studentNis: student?.nis || '',
+              studentNisn: student?.nisn || '',
+              studentName: student?.name || '',
+              classId: student?.currentClassId || '',
+              className: studentClass?.name || student?.currentClassName || '',
+              gradeLevel: studentClass?.gradeLevel || '10',
+              academicYearId: selectedYearId,
+              semesterId: up.semesterId,
+              averageScore: 0,
+              totalScore: 0,
+              subjectCount: 0,
+              completedCount: 0,
+              mandatoryCount: 0,
+              isComplete: true,
+              classRank: up.classRank ?? null,
+              parallelRank: up.parallelRank ?? null,
+              eligibleRank: up.eligibleRank ?? null,
+              status: 'final',
+              updatedAt: new Date().toISOString(),
+            };
+
+        updatedSummaries.push(newSummary);
+        batch.set(doc(db, 'academicSummaries', summaryId), newSummary);
+
+        if (up.eligibleRank !== undefined && student) {
+          const updatedSt: Student = {
+            ...student,
+            eligibleRank: up.eligibleRank,
+          };
+          updatedStudents.push(updatedSt);
+          batch.set(doc(db, 'students', student.id), updatedSt);
+        }
+      }
+
+      await batch.commit();
+
+      setAcademicSummaries(prev => {
+        const map = new Map(prev.map(i => [i.id, i]));
+        updatedSummaries.forEach(u => map.set(u.id, u));
+        const arr = Array.from(map.values());
+        try { localStorage.setItem('sirna_summaries', JSON.stringify(arr)); } catch {}
+        return arr;
+      });
+
+      if (updatedStudents.length > 0) {
+        setStudents(prev => {
+          const map = new Map(prev.map(i => [i.id, i]));
+          updatedStudents.forEach(u => map.set(u.id, u));
+          const arr = Array.from(map.values());
+          try { localStorage.setItem('sirna_students', JSON.stringify(arr)); } catch {}
+          return arr;
+        });
+      }
+
+      await logAuditAction(
+        'MANUAL_RANKS_UPDATE',
+        `Pembaruan Peringkat Manual (${updates.length} Siswa)`,
+        `Input manual peringkat kelas, paralel, dan eligible oleh Admin`
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'saveManualRanks');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -1218,6 +1295,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         finalizeAssignmentGrades,
         publishSemesterGrades,
         recalculateAveragesAndRanks,
+        saveManualRanks,
 
         updateSchoolSettings,
         saveStudent,

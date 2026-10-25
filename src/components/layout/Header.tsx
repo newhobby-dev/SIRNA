@@ -131,40 +131,42 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarOpen, 
           </div>
         </div>
 
-        {/* Center: Academic Period Selectors */}
-        <div className="hidden lg:flex items-center gap-2 bg-slate-950/70 px-3 py-1.5 rounded-lg border border-slate-800 text-xs shrink-0">
-          <Calendar className="w-3.5 h-3.5 text-blue-400" />
-          <span className="text-slate-400">Periode:</span>
-          <select
-            value={selectedYearId}
-            onChange={(e) => {
-              setSelectedYearId(e.target.value);
-              const matching = semesters.find(s => s.academicYearId === e.target.value);
-              if (matching) setSelectedSemesterId(matching.id);
-            }}
-            className="bg-transparent text-white font-medium focus:outline-none cursor-pointer"
-          >
-            {academicYears.map((ay) => (
-              <option key={ay.id} value={ay.id} className="bg-slate-900 text-white">
-                TP {ay.name} {ay.isActive ? '(Aktif)' : ''}
-              </option>
-            ))}
-          </select>
+        {/* Center: Academic Period Selectors (Hidden on Student Portal) */}
+        {role !== 'student' && (
+          <div className="hidden lg:flex items-center gap-2 bg-slate-950/70 px-3 py-1.5 rounded-lg border border-slate-800 text-xs shrink-0">
+            <Calendar className="w-3.5 h-3.5 text-blue-400" />
+            <span className="text-slate-400">Periode:</span>
+            <select
+              value={selectedYearId}
+              onChange={(e) => {
+                setSelectedYearId(e.target.value);
+                const matching = semesters.find(s => s.academicYearId === e.target.value);
+                if (matching) setSelectedSemesterId(matching.id);
+              }}
+              className="bg-transparent text-white font-medium focus:outline-none cursor-pointer"
+            >
+              {academicYears.map((ay) => (
+                <option key={ay.id} value={ay.id} className="bg-slate-900 text-white">
+                  TP {ay.name} {ay.isActive ? '(Aktif)' : ''}
+                </option>
+              ))}
+            </select>
 
-          <span className="text-slate-600">|</span>
+            <span className="text-slate-600">|</span>
 
-          <select
-            value={selectedSemesterId}
-            onChange={(e) => setSelectedSemesterId(e.target.value)}
-            className="bg-transparent text-blue-300 font-semibold focus:outline-none cursor-pointer"
-          >
-            {filteredSemesters.map((s) => (
-              <option key={s.id} value={s.id} className="bg-slate-900 text-white">
-                {s.name} ({s.status})
-              </option>
-            ))}
-          </select>
-        </div>
+            <select
+              value={selectedSemesterId}
+              onChange={(e) => setSelectedSemesterId(e.target.value)}
+              className="bg-transparent text-blue-300 font-semibold focus:outline-none cursor-pointer"
+            >
+              {filteredSemesters.map((s) => (
+                <option key={s.id} value={s.id} className="bg-slate-900 text-white">
+                  {s.name} ({s.status})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Right: Cloud Sync, Role Switcher & User Profile or Exit Student Portal */}
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">

@@ -79,7 +79,10 @@ export interface Student {
   status: StudentStatus;
   currentClassId: string;
   currentClassName: string;
-  portalPin: string; // PIN akses portal siswa
+  portalPin?: string;
+  eligibleRank?: number | null;
+  eligibleStatus?: 'eligible' | 'non_eligible' | 'pending';
+  eligibleNotes?: string;
   classHistory: {
     academicYearId: string;
     semesterId: string;
@@ -209,6 +212,7 @@ export interface AcademicSummary {
   isComplete: boolean;
   classRank: number | null;
   parallelRank: number | null;
+  eligibleRank?: number | null;
   status: 'incomplete' | 'provisional' | 'final' | 'published';
   updatedAt: string;
 }

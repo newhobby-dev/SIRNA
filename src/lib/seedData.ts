@@ -219,7 +219,8 @@ export const defaultStudents: Student[] = [
     status: 'aktif',
     currentClassId: 'cls_10_a',
     currentClassName: 'Kelas X-A',
-    portalPin: '123456',
+    eligibleRank: 1,
+    eligibleStatus: 'eligible',
     classHistory: [{ academicYearId: 'ay_2026_2027', semesterId: 'sem_2026_1', classId: 'cls_10_a', className: 'Kelas X-A' }],
   },
   {
@@ -232,7 +233,8 @@ export const defaultStudents: Student[] = [
     status: 'aktif',
     currentClassId: 'cls_10_a',
     currentClassName: 'Kelas X-A',
-    portalPin: '123456',
+    eligibleRank: 2,
+    eligibleStatus: 'eligible',
     classHistory: [{ academicYearId: 'ay_2026_2027', semesterId: 'sem_2026_1', classId: 'cls_10_a', className: 'Kelas X-A' }],
   },
   {
@@ -376,7 +378,9 @@ export const initialGradeEntries: GradeEntry[] = [
   // Data Nilai Historis Semester Genap 2025/2026 (status: 'published') untuk menguji Portal Siswa & Riwayat
   { id: 'sem_2025_2_cls_10_a_subj_mat_std_10a_01', studentId: 'std_10a_01', studentNis: '2601001', studentNisn: '0081234561', studentName: 'Aditya Pratama Putra', classId: 'cls_10_a', className: 'Kelas X-A', subjectId: 'subj_mat', subjectName: 'Matematika', teacherId: 't_aris', teacherName: 'Aris Wicaksono, S.Pd.', academicYearId: 'ay_2025_2026', semesterId: 'sem_2025_2', finalScore: 89.0, status: 'published', createdAt: '2026-06-15T08:00:00Z', updatedAt: '2026-06-20T08:00:00Z', publishedAt: '2026-06-20T08:00:00Z' },
   { id: 'sem_2025_2_cls_10_a_subj_bind_std_10a_01', studentId: 'std_10a_01', studentNis: '2601001', studentNisn: '0081234561', studentName: 'Aditya Pratama Putra', classId: 'cls_10_a', className: 'Kelas X-A', subjectId: 'subj_bind', subjectName: 'Bahasa Indonesia', teacherId: 't_sri', teacherName: 'Dra. Sri Wahyuni, M.Pd.', academicYearId: 'ay_2025_2026', semesterId: 'sem_2025_2', finalScore: 87.5, status: 'published', createdAt: '2026-06-15T08:00:00Z', updatedAt: '2026-06-20T08:00:00Z', publishedAt: '2026-06-20T08:00:00Z' },
-  { id: 'sem_2025_2_cls_10_a_subj_bing_std_10a_01', studentId: 'std_10a_01', studentNis: '2601001', studentNisn: '0081234561', studentName: 'Aditya Pratama Putra', classId: 'cls_10_a', className: 'Kelas X-A', subjectId: 'subj_bing', subjectName: 'Bahasa Inggris', teacherId: 't_budi', teacherName: 'Drs. Budi Hartono', academicYearId: 'ay_2025_2026', semesterId: 'sem_2025_2', finalScore: 88.0, status: 'published', createdAt: '2026-06-15T08:00:00Z', updatedAt: '2026-06-20T08:00:00Z', publishedAt: '2026-06-20T08:00:00Z' },
+  // Tambahan nilai mapel peminatan X-A untuk Aditya Pratama Putra
+  { id: 'sem_2026_1_cls_10_a_subj_fis_std_10a_01', studentId: 'std_10a_01', studentNis: '2601001', studentNisn: '0081234561', studentName: 'Aditya Pratama Putra', classId: 'cls_10_a', className: 'Kelas X-A', subjectId: 'subj_fis', subjectName: 'Fisika', teacherId: 't_fauzi', teacherName: 'Ahmad Fauzi, S.Pd., M.Si.', academicYearId: 'ay_2026_2027', semesterId: 'sem_2026_1', finalScore: 91.0, status: 'submitted', createdAt: '2026-10-22T08:00:00Z', updatedAt: '2026-10-22T08:00:00Z', submittedAt: '2026-10-22T08:00:00Z' },
+  { id: 'sem_2026_1_cls_10_a_subj_kim_std_10a_01', studentId: 'std_10a_01', studentNis: '2601001', studentNisn: '0081234561', studentName: 'Aditya Pratama Putra', classId: 'cls_10_a', className: 'Kelas X-A', subjectId: 'subj_kim', subjectName: 'Kimia', teacherId: 't_rahma', teacherName: 'Siti Rahmawati, S.Pd.', academicYearId: 'ay_2026_2027', semesterId: 'sem_2026_1', finalScore: 89.5, status: 'submitted', createdAt: '2026-10-22T09:00:00Z', updatedAt: '2026-10-22T09:00:00Z', submittedAt: '2026-10-22T09:00:00Z' },
 ];
 
 export const defaultSummaries: AcademicSummary[] = [
@@ -400,6 +404,7 @@ export const defaultSummaries: AcademicSummary[] = [
     isComplete: true,
     classRank: 2,
     parallelRank: 3,
+    eligibleRank: 1,
     status: 'published',
     updatedAt: '2026-06-20T08:00:00Z',
   },

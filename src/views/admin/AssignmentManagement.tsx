@@ -130,42 +130,47 @@ export const AssignmentManagement: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
-              <th className="py-3 px-3 w-12 text-center">No.</th>
-              <th className="py-3 px-4">Guru Pengampu</th>
-              <th className="py-3 px-4">Mata Pelajaran</th>
-              <th className="py-3 px-3">Kelas / Rombel</th>
-              <th className="py-3 px-3 text-center">Status</th>
-              <th className="py-3 px-3 text-right">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredAssignments.map((a, idx) => (
-              <tr key={a.id} className="hover:bg-slate-50 transition">
-                <td className="py-3 px-3 text-center text-slate-400 font-mono">{idx + 1}</td>
-                <td className="py-3 px-4 font-bold text-slate-900">{a.teacherName}</td>
-                <td className="py-3 px-4 text-slate-800 font-semibold">{a.subjectName}</td>
-                <td className="py-3 px-3 font-medium text-slate-700">{a.className}</td>
-                <td className="py-3 px-3 text-center">
-                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    Aktif
-                  </span>
-                </td>
-                <td className="py-3 px-3 text-right">
-                  <button
-                    onClick={() => handleDelete(a.id, `${a.teacherName} - ${a.subjectName} (${a.className})`)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                    title="Hapus Penugasan"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </td>
+        <div className="block sm:hidden px-3.5 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-500 font-medium">
+          ↔ Geser ke kanan/kiri untuk melihat kolom & tombol aksi
+        </div>
+        <div className="overflow-x-auto w-full">
+          <table className="w-full text-left text-xs min-w-[680px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
+                <th className="py-3 px-3 w-12 text-center">No.</th>
+                <th className="py-3 px-4">Guru Pengampu</th>
+                <th className="py-3 px-4">Mata Pelajaran</th>
+                <th className="py-3 px-3">Kelas / Rombel</th>
+                <th className="py-3 px-3 text-center">Status</th>
+                <th className="py-3 px-3 text-right">Aksi</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredAssignments.map((a, idx) => (
+                <tr key={a.id} className="hover:bg-slate-50 transition">
+                  <td className="py-3 px-3 text-center text-slate-400 font-mono">{idx + 1}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900">{a.teacherName}</td>
+                  <td className="py-3 px-4 text-slate-800 font-semibold">{a.subjectName}</td>
+                  <td className="py-3 px-3 font-medium text-slate-700">{a.className}</td>
+                  <td className="py-3 px-3 text-center">
+                    <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Aktif
+                    </span>
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    <button
+                      onClick={() => handleDelete(a.id, `${a.teacherName} - ${a.subjectName} (${a.className})`)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                      title="Hapus Penugasan"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {isModalOpen && (
