@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Student, GradePredicate } from '../types';
+import { Student, GradePredicate, Subject, ClassRoom, GradeEntry } from '../types';
 
 /**
  * Standar Pengurutan Alfabetis Siswa (Bagian 19 Spesifikasi):
@@ -271,3 +271,266 @@ export async function parseExcelGradeFile(
 
   return { rows: parsedRows, totalValid, totalErrors };
 }
+
+export interface AllSubjectsExcelStudentRow {
+  sheetName: string;
+  rowNumber: number;
+  nis: string;
+  nisn: string;
+  name: string;
+  className: string;
+  matchedStudent?: Student;
+  scoresBySubjectId: Record<string, number>;
+  rawErrors: string[];
+  isValid: boolean;
+}
+
+export interface AllSubjectsParseResult {
+  rows: AllSubjectsExcelStudentRow[];
+  detectedSubjects: Subject[];
+  totalStudentsMatched: number;
+  totalGradeEntriesValid: number;
+  totalErrors: number;
+}
+
+/**
+ * Unduh Template / Ekspor Excel Semua Mata Pelajaran (Untuk 1 Kelas atau Seluruh Kelas)
+ */
+export function downloadAllSubjectsTemplate(params: {
+  classes: ClassRoom[];
+  students: Student[];
+  subjects: Subject[];
+  semesterName: string;
+  existingGradesMap?: Map<string, number>; // key: `${studentId}_${subjectId}`
+  includeExistingScores?: boolean;
+  fileNamePrefix?: string;
+}) {
+  const {
+    classes,
+    students,
+    subjects,
+    semesterName,
+    existingGradesMap,
+    includeExistingScores = false,
+    fileNamePrefix = 'Template_Nilai_Semua_Mapel',
+  } = params;
+
+  const wb = XLSX.utils.book_new();
+
+  classes.forEach(cls => {
+    const classStudents = sortStudentsAlphabetically(
+      students.filter(s => s.currentClassId === cls.id && s.status === 'aktif')
+    );
+
+    // Filter subjects applicable to this class's gradeLevel (or all active subjects if none match)
+    const classSubjects = subjects.filter(
+      sub => sub.isActive && (!sub.gradeLevel || sub.gradeLevel === 'Semua' || sub.gradeLevel === cls.gradeLevel)
+    );
+    const subjectsToUse = classSubjects.length > 0 ? classSubjects : subjects.filter(s => s.isActive);
+
+    const sheetData = classStudents.map((st, idx) => {
+      const row: Record<string, any> = {
+        'No.': idx + 1,
+        'NIS': String(st.nis),
+        'NISN': String(st.nisn),
+        'Nama Peserta Didik': st.name,
+        'Kelas': cls.name,
+      };
+
+      subjectsToUse.forEach(sub => {
+        const colHeader = `${sub.code} - ${sub.name}`;
+        if (includeExistingScores && existingGradesMap) {
+          const val = existingGradesMap.get(`${st.id}_${sub.id}`);
+          row[colHeader] = val !== undefined ? val : '';
+        } else {
+          row[colHeader] = '';
+        }
+      });
+
+      return row;
+    });
+
+    // If class has no students yet, still provide header structure
+    if (sheetData.length === 0) {
+      const emptyHeaderRow: Record<string, any> = {
+        'No.': 1,
+        'NIS': '',
+        'NISN': '',
+        'Nama Peserta Didik': '',
+        'Kelas': cls.name,
+      };
+      subjectsToUse.forEach(sub => {
+        emptyHeaderRow[`${sub.code} - ${sub.name}`] = '';
+      });
+      sheetData.push(emptyHeaderRow);
+    }
+
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+    ws['!cols'] = [
+      { wch: 5 },
+      { wch: 12 },
+      { wch: 15 },
+      { wch: 32 },
+      { wch: 14 },
+      ...subjectsToUse.map(() => ({ wch: 18 })),
+    ];
+
+    const safeSheetName = (cls.code || cls.name || 'Kelas').substring(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
+  });
+
+  const scopeLabel = classes.length === 1 ? classes[0].code : 'Seluruh_Kelas';
+  const safeFile = `${fileNamePrefix}_${scopeLabel}_${semesterName}`.replace(/[\\/:*?"<>|\s]+/g, '_');
+  XLSX.writeFile(wb, `${safeFile}.xlsx`);
+}
+
+/**
+ * Parsing berkas Excel Semua Mata Pelajaran (mendukung 1 sheet maupun multi-sheet seluruh kelas)
+ */
+export async function parseAllSubjectsExcelFile(
+  file: File,
+  allowedStudents: Student[],
+  activeSubjects: Subject[],
+  minScore = 0,
+  maxScore = 100
+): Promise<AllSubjectsParseResult> {
+  const data = await file.arrayBuffer();
+  const workbook = XLSX.read(data, { type: 'array' });
+
+  const studentByNis = new Map<string, Student>();
+  const studentByNisn = new Map<string, Student>();
+  allowedStudents.forEach(st => {
+    if (st.nis) studentByNis.set(String(st.nis).trim(), st);
+    if (st.nisn) studentByNisn.set(String(st.nisn).trim(), st);
+  });
+
+  const detectedSubjectIds = new Set<string>();
+  const rows: AllSubjectsExcelStudentRow[] = [];
+  let totalGradeEntriesValid = 0;
+  let totalErrors = 0;
+
+  // Helper to match a column header to a Subject
+  const matchHeaderToSubject = (headerRaw: string): Subject | undefined => {
+    const h = headerRaw.trim();
+    const hLower = h.toLowerCase();
+
+    // Ignore standard identity/summary columns
+    const ignored = new Set([
+      'no', 'no.', 'nomor', 'nis', 'nisn', 'nama', 'nama peserta didik', 'nama siswa', 'nama siswa (a-z)',
+      'kelas', 'rombel', 'rata-rata', 'rata rata', 'total', 'total nilai', 'status', 'peringkat',
+      'peringkat kelas', 'peringkat paralel', 'peringkat eligible', 'predikat',
+    ]);
+    if (ignored.has(hLower)) return undefined;
+
+    // 1. Exact code match or exact name match
+    const exact = activeSubjects.find(
+      s =>
+        s.code.trim().toLowerCase() === hLower ||
+        s.name.trim().toLowerCase() === hLower ||
+        `${s.code.trim()} - ${s.name.trim()}`.toLowerCase() === hLower ||
+        `${s.name.trim()} (${s.code.trim()})`.toLowerCase() === hLower
+    );
+    if (exact) return exact;
+
+    // 2. Starts with "CODE -" or "CODE:"
+    const prefixMatch = activeSubjects.find(s => {
+      const codeLower = s.code.trim().toLowerCase();
+      return hLower.startsWith(`${codeLower} -`) || hLower.startsWith(`${codeLower}-`) || hLower.startsWith(`${codeLower}:`);
+    });
+    if (prefixMatch) return prefixMatch;
+
+    return undefined;
+  };
+
+  for (const sheetName of workbook.SheetNames) {
+    const worksheet = workbook.Sheets[sheetName];
+    const rawJson: Record<string, any>[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+    if (rawJson.length === 0) continue;
+
+    // Map headers in this sheet to subjects
+    const firstRowKeys = Object.keys(rawJson[0] || {});
+    const headerSubjectMap = new Map<string, Subject>();
+    firstRowKeys.forEach(colKey => {
+      const matchedSub = matchHeaderToSubject(colKey);
+      if (matchedSub) {
+        headerSubjectMap.set(colKey, matchedSub);
+        detectedSubjectIds.add(matchedSub.id);
+      }
+    });
+
+    rawJson.forEach((row, idx) => {
+      const nis = String(row['NIS'] ?? row['nis'] ?? row['Nis'] ?? '').trim();
+      const nisn = String(row['NISN'] ?? row['nisn'] ?? row['Nisn'] ?? '').trim();
+      const name = String(
+        row['Nama Peserta Didik'] ?? row['Nama Siswa'] ?? row['Nama Siswa (A-Z)'] ?? row['Nama'] ?? row['nama'] ?? ''
+      ).trim();
+      const classNameCol = String(row['Kelas'] ?? row['kelas'] ?? row['Rombel'] ?? sheetName).trim();
+
+      // Skip completely empty template rows
+      if (!nis && !nisn && !name) return;
+
+      const rowErrors: string[] = [];
+      const matchedStudent = (nis ? studentByNis.get(nis) : undefined) || (nisn ? studentByNisn.get(nisn) : undefined);
+
+      if (!matchedStudent) {
+        rowErrors.push(`Siswa dengan NIS "${nis || '-'}" / NISN "${nisn || '-'}" tidak ditemukan.`);
+      }
+
+      const scoresBySubjectId: Record<string, number> = {};
+
+      headerSubjectMap.forEach((subj, colKey) => {
+        const rawVal = row[colKey];
+        if (rawVal === '' || rawVal === null || rawVal === undefined || String(rawVal).trim() === '' || String(rawVal).trim() === '-') {
+          return; // Kosong dilewati (tidak dihitung 0)
+        }
+
+        const parsedNum =
+          typeof rawVal === 'number'
+            ? rawVal
+            : parseFloat(String(rawVal).trim().replace(',', '.'));
+
+        if (isNaN(parsedNum)) {
+          rowErrors.push(`${subj.code}: nilai "${rawVal}" bukan angka valid`);
+        } else if (parsedNum < minScore || parsedNum > maxScore) {
+          rowErrors.push(`${subj.code}: nilai ${parsedNum} di luar rentang (${minScore}-${maxScore})`);
+        } else {
+          const rounded = Math.round(parsedNum * 100) / 100;
+          scoresBySubjectId[subj.id] = rounded;
+          if (matchedStudent) {
+            totalGradeEntriesValid++;
+          }
+        }
+      });
+
+      const isValid = matchedStudent !== undefined && rowErrors.length === 0 && Object.keys(scoresBySubjectId).length > 0;
+      if (rowErrors.length > 0) {
+        totalErrors += rowErrors.length;
+      }
+
+      rows.push({
+        sheetName,
+        rowNumber: idx + 2,
+        nis: nis || matchedStudent?.nis || '-',
+        nisn: nisn || matchedStudent?.nisn || '-',
+        name: name || matchedStudent?.name || 'Tanpa Nama',
+        className: matchedStudent?.currentClassName || classNameCol,
+        matchedStudent,
+        scoresBySubjectId,
+        rawErrors: rowErrors,
+        isValid,
+      });
+    });
+  }
+
+  const detectedSubjects = activeSubjects.filter(s => detectedSubjectIds.has(s.id));
+  const totalStudentsMatched = rows.filter(r => r.matchedStudent && Object.keys(r.scoresBySubjectId).length > 0).length;
+
+  return {
+    rows,
+    detectedSubjects,
+    totalStudentsMatched,
+    totalGradeEntriesValid,
+    totalErrors,
+  };
+}
+

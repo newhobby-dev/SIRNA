@@ -94,10 +94,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => onNavigate('admin_upload_export_grades')}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-md shadow-purple-900/40 cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Unggah & Ekspor Semua Mapel</span>
+          </button>
+
           {pendingAssignments.length > 0 && (
             <button
               onClick={() => onNavigate('admin_verification')}
-              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition shadow-md shadow-amber-900/30"
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition shadow-md shadow-amber-900/30 cursor-pointer"
             >
               <Clock className="w-4 h-4" />
               <span>Verifikasi ({pendingAssignments.length}) Nilai</span>
@@ -106,7 +114,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
           <button
             onClick={() => onNavigate('admin_publish')}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-md shadow-blue-900/40"
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-md shadow-blue-900/40 cursor-pointer"
           >
             <Share2 className="w-4 h-4" />
             <span>Publikasi Nilai Siswa</span>

@@ -97,7 +97,9 @@ const MainContent: React.FC = () => {
       case 'admin_publish':
         return <PublishManagement onNavigate={setActiveTab} />;
       case 'admin_school_recap':
-        return <SchoolRecapView />;
+        return <SchoolRecapView initialMode="leger" />;
+      case 'admin_upload_export_grades':
+        return <SchoolRecapView initialMode="upload" />;
       case 'admin_rankings':
         return <RankingsView />;
       case 'admin_analytics':

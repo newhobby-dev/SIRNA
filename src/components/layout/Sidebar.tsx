@@ -35,6 +35,7 @@ export type ActiveTab =
   | 'admin_verification'
   | 'admin_publish'
   | 'admin_school_recap'
+  | 'admin_upload_export_grades'
   | 'admin_rankings'
   | 'admin_analytics'
   | 'admin_completeness'
@@ -178,7 +179,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                 <div className="space-y-1">
                   <button onClick={() => handleSelect('admin_school_recap')} className={navItemClass('admin_school_recap')}>
                     <FileText className="w-4 h-4 text-yellow-400" />
-                    <span>Rekap Seluruh Kelas</span>
+                    <span>Rekap & Ekspor Semua Mapel</span>
+                  </button>
+                  <button onClick={() => handleSelect('admin_upload_export_grades')} className={navItemClass('admin_upload_export_grades')}>
+                    <Upload className="w-4 h-4 text-purple-400" />
+                    <span>Unggah Nilai Semua Mapel</span>
                   </button>
                   <button onClick={() => handleSelect('admin_rankings')} className={navItemClass('admin_rankings')}>
                     <Award className="w-4 h-4 text-amber-300" />

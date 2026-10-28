@@ -537,31 +537,42 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           createdAt: existing?.createdAt || now,
           updatedAt: now,
           submittedAt: status === 'submitted' ? now : existing?.submittedAt,
-          finalizedAt: status === 'final' ? now : existing?.finalizedAt,
+          finalizedAt: status === 'final' || status === 'published' ? now : existing?.finalizedAt,
           publishedAt: status === 'published' ? now : existing?.publishedAt,
         };
 
-        batch.set(doc(db, 'gradeEntries', entryId), fullEntry);
         updatedEntries.push(fullEntry);
       }
 
-      await batch.commit();
+      // Commit in chunks of 400 to respect Firestore 500-op batch limit
+      const chunkSize = 400;
+      for (let i = 0; i < updatedEntries.length; i += chunkSize) {
+        const chunk = updatedEntries.slice(i, i + chunkSize);
+        const chunkBatch = writeBatch(db);
+        chunk.forEach(item => {
+          chunkBatch.set(doc(db, 'gradeEntries', item.id), item);
+        });
+        await chunkBatch.commit();
+      }
 
-      setGradeEntries(prev => {
-        const map = new Map(prev.map(item => [item.id, item]));
-        updatedEntries.forEach(item => map.set(item.id, item));
-        return Array.from(map.values());
-      });
+      const mergedGradesMap = new Map(gradeEntries.map(item => [item.id, item]));
+      updatedEntries.forEach(item => mergedGradesMap.set(item.id, item));
+      const mergedGradesList = Array.from(mergedGradesMap.values());
 
-      // Recalculate semester averages if grades were submitted or finalized
+      setGradeEntries(mergedGradesList);
+      try {
+        localStorage.setItem('sirna_grades', JSON.stringify(mergedGradesList));
+      } catch {}
+
+      // Recalculate semester averages if grades were submitted, finalized, or published
       if (status !== 'draft' && entries[0]?.semesterId) {
-        await recalculateAveragesAndRanks(entries[0].semesterId);
+        await recalculateAveragesAndRanks(entries[0].semesterId, mergedGradesList);
       }
 
       await logAuditAction(
         status === 'draft' ? 'SAVE_GRADE_DRAFT' : 'SUBMIT_GRADES',
-        `${entries[0]?.className || 'Kelas'} - ${entries[0]?.subjectName || 'Mapel'}`,
-        `Penyimpanan nilai untuk ${entries.length} peserta didik dengan status: ${status}`
+        `${entries[0]?.className || 'Multi-Kelas'} - ${entries.length > 35 ? 'Semua Mapel' : (entries[0]?.subjectName || 'Mapel')}`,
+        `Penyimpanan ${updatedEntries.length} entri nilai dengan status: ${status}`
       );
       setLastSyncTime(new Date());
     } catch (err) {
@@ -599,14 +610,14 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updated.forEach(g => batch.set(doc(db, 'gradeEntries', g.id), g));
       await batch.commit();
 
-      setGradeEntries(prev => {
-        const map = new Map(prev.map(i => [i.id, i]));
-        updated.forEach(u => map.set(u.id, u));
-        return Array.from(map.values());
-      });
+      const mergedMap = new Map(gradeEntries.map(i => [i.id, i]));
+      updated.forEach(u => mergedMap.set(u.id, u));
+      const mergedList = Array.from(mergedMap.values());
+
+      setGradeEntries(mergedList);
 
       if (approve) {
-        await recalculateAveragesAndRanks(assignment.semesterId);
+        await recalculateAveragesAndRanks(assignment.semesterId, mergedList);
       }
 
       await logAuditAction(
@@ -628,13 +639,15 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Recalculates averages and competition ranks (Bagian 8 & 9)
-  const recalculateAveragesAndRanks = async (semesterId: string) => {
+  const recalculateAveragesAndRanks = async (semesterId: string, customGrades?: GradeEntry[]) => {
     // 1. Ambil seluruh mata pelajaran wajib
     const mandatorySubjects = subjects.filter(s => s.isActive && s.isMandatory);
     const mandatorySubjectIds = new Set(mandatorySubjects.map(s => s.id));
 
+    const sourceGrades = customGrades || gradeEntries;
+
     // 2. Ambil seluruh nilai sah untuk semester ini (status: 'final' atau 'published' atau 'submitted')
-    const semGrades = gradeEntries.filter(
+    const semGrades = sourceGrades.filter(
       g => g.semesterId === semesterId && (g.status === 'final' || g.status === 'published' || g.status === 'submitted')
     );
 
