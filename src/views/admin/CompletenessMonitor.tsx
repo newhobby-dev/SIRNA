@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ClipboardList, CheckCircle2, Clock, AlertCircle, FileSpreadsheet, Filter } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
+import { isSubjectApplicableToClass, sortSubjects } from '../../lib/utils';
+import { ClassRoom, Subject } from '../../types';
 
 export const CompletenessMonitor: React.FC = () => {
   const {
@@ -14,20 +16,24 @@ export const CompletenessMonitor: React.FC = () => {
 
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
-  const activeSubjects = subjects.filter(s => s.isActive);
+  const activeSubjects = sortSubjects(subjects.filter(s => s.isActive));
   const activeClasses = classes.filter(c => c.isActive);
 
   // Status mapping for Class x Subject
-  const getCellStatus = (classId: string, subjectId: string) => {
+  const getCellStatus = (cls: ClassRoom, subject: Subject) => {
+    if (!isSubjectApplicableToClass(subject, cls)) {
+      return { status: 'not_applicable', teacher: 'Tidak Dipelajari di Kelas Ini' };
+    }
+
     const assignment = teachingAssignments.find(
-      a => a.classId === classId && a.subjectId === subjectId
+      a => a.classId === cls.id && a.subjectId === subject.id
     );
     if (!assignment) {
       return { status: 'unassigned', teacher: '-' };
     }
 
     const grades = gradeEntries.filter(
-      g => g.classId === classId && g.subjectId === subjectId && g.semesterId === selectedSemesterId
+      g => g.classId === cls.id && g.subjectId === subject.id && g.semesterId === selectedSemesterId
     );
 
     if (grades.length === 0) {
@@ -112,11 +118,14 @@ export const CompletenessMonitor: React.FC = () => {
                   </td>
 
                   {activeSubjects.map(sub => {
-                    const info = getCellStatus(cls.id, sub.id);
+                    const info = getCellStatus(cls, sub);
                     let badgeClass = 'bg-slate-100 text-slate-400';
                     let label = 'Kosong';
 
-                    if (info.status === 'unassigned') {
+                    if (info.status === 'not_applicable') {
+                      badgeClass = 'bg-slate-50/60 text-slate-300';
+                      label = '-';
+                    } else if (info.status === 'unassigned') {
                       badgeClass = 'bg-slate-50 text-slate-300 border-dashed border border-slate-200';
                       label = 'N/A';
                     } else if (info.status === 'unfilled') {
@@ -143,7 +152,7 @@ export const CompletenessMonitor: React.FC = () => {
                       <td key={sub.id} className="py-2.5 px-2 text-center border-r border-slate-100">
                         <span
                           className={`inline-block px-1.5 py-0.5 rounded text-[10px] w-full max-w-[60px] truncate ${badgeClass}`}
-                          title={`Guru: ${info.teacher}`}
+                          title={info.status === 'not_applicable' ? 'Tidak dipelajari di kelas ini' : `Guru: ${info.teacher}`}
                         >
                           {label}
                         </span>

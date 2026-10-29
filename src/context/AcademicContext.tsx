@@ -663,10 +663,13 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Recalculates averages and competition ranks (Bagian 8 & 9)
-  const recalculateAveragesAndRanks = async (semesterId: string, customGrades?: GradeEntry[]) => {
-    // 1. Ambil seluruh mata pelajaran wajib
-    const mandatorySubjects = subjects.filter(s => s.isActive && s.isMandatory);
-    const mandatorySubjectIds = new Set(mandatorySubjects.map(s => s.id));
+  const recalculateAveragesAndRanks = async (
+    semesterId: string,
+    customGrades?: GradeEntry[],
+    customSubjects?: Subject[]
+  ) => {
+    const activeSubjectsList = (customSubjects || subjects).filter(s => s.isActive);
+    const mandatorySubjects = activeSubjectsList.filter(s => s.isMandatory);
 
     const sourceGrades = customGrades || gradeEntries;
 
@@ -690,7 +693,17 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (student.status !== 'aktif') continue;
 
       const studentClass = classes.find(c => c.id === student.currentClassId);
-      const studentGrades = studentGradesMap.get(student.id) || [];
+      const rawStudentGrades = studentGradesMap.get(student.id) || [];
+
+      // Filter mata pelajaran yang memang dipelajari di kelas siswa tersebut
+      const classApplicableSubjectIds = new Set(
+        activeSubjectsList
+          .filter(s => isSubjectApplicableToClass(s, studentClass))
+          .map(s => s.id)
+      );
+
+      // Hanya perhitungkan nilai mata pelajaran yang berlaku pada kelas siswa tersebut
+      const studentGrades = rawStudentGrades.filter(g => classApplicableSubjectIds.has(g.subjectId));
 
       // Perhitungan Rata-rata semester otomatis (Bagian 8):
       // Rata-rata = jumlah nilai akhir mata pelajaran yang diperhitungkan / jumlah mata pelajaran yang diperhitungkan
@@ -705,9 +718,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       // Cek kelengkapan mata pelajaran wajib yang memang dipelajari di kelas siswa tersebut
       const classMandatorySubjects = mandatorySubjects.filter(s => isSubjectApplicableToClass(s, studentClass));
-      const classMandatoryIds = new Set(
-        (classMandatorySubjects.length > 0 ? classMandatorySubjects : mandatorySubjects).map(s => s.id)
-      );
+      const classMandatoryIds = new Set(classMandatorySubjects.map(s => s.id));
       const completedMandatoryIds = new Set(
         studentGrades.filter(g => classMandatoryIds.has(g.subjectId)).map(g => g.subjectId)
       );
@@ -1001,6 +1012,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const isNew = !subjects.some(s => s.id === subj.id);
     const cleanSubj = sanitizeFirestoreData({
       ...subj,
+      targetClassIds: Array.isArray(subj.targetClassIds) ? subj.targetClassIds : [],
       sortOrder:
         typeof subj.sortOrder === 'number' && !isNaN(subj.sortOrder)
           ? subj.sortOrder
@@ -1016,6 +1028,9 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       localStorage.setItem('sirna_subjects', JSON.stringify(updated));
     } catch {}
     await setDoc(doc(db, 'subjects', cleanSubj.id), cleanSubj);
+    if (selectedSemesterId) {
+      await recalculateAveragesAndRanks(selectedSemesterId, gradeEntries, updated);
+    }
     await logAuditAction(isNew ? 'CREATE_SUBJECT' : 'UPDATE_SUBJECT', cleanSubj.name, `Kode: ${cleanSubj.code}, Urutan: #${cleanSubj.sortOrder ?? '-'}`);
   };
 
@@ -1055,14 +1070,15 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const deleteSubject = async (subjectId: string) => {
-    setSubjects(prev => {
-      const next = prev.filter(s => s.id !== subjectId);
-      try {
-        localStorage.setItem('sirna_subjects', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+    const nextList = subjects.filter(s => s.id !== subjectId);
+    setSubjects(nextList);
+    try {
+      localStorage.setItem('sirna_subjects', JSON.stringify(nextList));
+    } catch {}
     await deleteDoc(doc(db, 'subjects', subjectId));
+    if (selectedSemesterId) {
+      await recalculateAveragesAndRanks(selectedSemesterId, gradeEntries, nextList);
+    }
     await logAuditAction('DELETE_SUBJECT', subjectId, 'Penghapusan mata pelajaran');
   };
 

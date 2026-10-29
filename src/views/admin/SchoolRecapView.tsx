@@ -64,7 +64,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
 
   const [activeMode, setActiveMode] = useState<'leger' | 'upload'>(initialMode);
   const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '');
-  const [subjectScope, setSubjectScope] = useState<'grade_level' | 'all'>('all');
+  const [subjectScope, setSubjectScope] = useState<'grade_level' | 'all'>('grade_level');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Inline Editing State for Admin on the Leger Matrix Table
@@ -103,15 +103,21 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     return sortStudentsAlphabetically(list);
   }, [students, selectedClassId, searchQuery]);
 
+  // Subjects strictly configured for the currently selected class
+  const applicableClassSubjects = useMemo(() => {
+    const allActive = sortSubjects(subjects.filter(s => s.isActive));
+    if (!currentClass) return allActive;
+    return allActive.filter(s => isSubjectApplicableToClass(s, currentClass));
+  }, [subjects, currentClass]);
+
   // Displayed subjects based on scope filter and configured sortOrder
   const displayedSubjects = useMemo(() => {
     const allActive = sortSubjects(subjects.filter(s => s.isActive));
     if (subjectScope === 'all' || !currentClass) {
       return allActive;
     }
-    const filtered = allActive.filter(s => isSubjectApplicableToClass(s, currentClass));
-    return filtered.length > 0 ? filtered : allActive;
-  }, [subjects, subjectScope, currentClass]);
+    return applicableClassSubjects;
+  }, [subjects, subjectScope, currentClass, applicableClassSubjects]);
 
   const handleOpenReorderModal = () => {
     setDraftSubjectsOrder(sortSubjects(subjects));
@@ -225,12 +231,48 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     window.print();
   };
 
-  // Export 1 selected class (All Subjects)
+  // Helper to compute live average, total, and completeness for a student based on their class's applicable subjects
+  const getStudentClassStats = (studentId: string, cls?: typeof currentClass) => {
+    const targetCls = cls || currentClass;
+    const allActive = sortSubjects(subjects.filter(s => s.isActive));
+    const classApplicable = targetCls
+      ? allActive.filter(s => isSubjectApplicableToClass(s, targetCls))
+      : allActive;
+    const mandatoryForClass = classApplicable.filter(s => s.isMandatory);
+
+    let totalScore = 0;
+    let completedCount = 0;
+    let mandatoryCompleted = 0;
+
+    classApplicable.forEach(sub => {
+      const val = allSemesterGradesMap.get(`${studentId}_${sub.id}`);
+      if (val !== undefined && val !== null && !isNaN(val)) {
+        totalScore += val;
+        completedCount++;
+        if (sub.isMandatory) {
+          mandatoryCompleted++;
+        }
+      }
+    });
+
+    const averageScore = completedCount > 0 ? Math.round((totalScore / completedCount) * 100) / 100 : 0;
+    const isComplete = mandatoryForClass.length > 0 && mandatoryCompleted >= mandatoryForClass.length;
+
+    return {
+      totalScore,
+      averageScore,
+      completedCount,
+      isComplete,
+    };
+  };
+
+  // Export 1 selected class (Subjects configured for this class)
   const handleExportCurrentClassExcel = () => {
     if (!currentClass) return;
 
     const rows = classStudents.map((st, idx) => {
       const sum = summaryMap.get(st.id);
+      const stats = getStudentClassStats(st.id, currentClass);
       const row: Record<string, any> = {
         'No.': idx + 1,
         'NIS': st.nis,
@@ -244,9 +286,9 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
         row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : '';
       });
 
-      row['Total Nilai'] = sum?.totalScore ? formatIndonesianNumber(sum.totalScore) : '-';
-      row['Rata-Rata'] = sum?.averageScore ? formatIndonesianNumber(sum.averageScore) : '-';
-      row['Status'] = sum?.isComplete ? 'Lengkap' : 'Belum Lengkap';
+      row['Total Nilai'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.totalScore) : '-';
+      row['Rata-Rata'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.averageScore) : '-';
+      row['Status'] = stats.isComplete ? 'Lengkap' : 'Belum Lengkap';
       row['Peringkat Kelas'] = sum?.classRank ?? '-';
       row['Peringkat Paralel'] = sum?.parallelRank ?? '-';
       row['Peringkat Eligible'] = sum?.eligibleRank ?? st.eligibleRank ?? '-';
@@ -273,6 +315,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     const masterRows = allActiveStudents.map((st, idx) => {
       const sum = summaryMap.get(st.id);
       const stClass = classes.find(c => c.id === st.currentClassId);
+      const stats = getStudentClassStats(st.id, stClass);
       const row: Record<string, any> = {
         'No.': idx + 1,
         'NIS': st.nis,
@@ -282,13 +325,14 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
       };
 
       allActiveSubjects.forEach(sub => {
-        const score = allSemesterGradesMap.get(`${st.id}_${sub.id}`);
+        const isApplicable = isSubjectApplicableToClass(sub, stClass);
+        const score = isApplicable ? allSemesterGradesMap.get(`${st.id}_${sub.id}`) : undefined;
         row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : '';
       });
 
-      row['Total Nilai'] = sum?.totalScore ? formatIndonesianNumber(sum.totalScore) : '-';
-      row['Rata-Rata'] = sum?.averageScore ? formatIndonesianNumber(sum.averageScore) : '-';
-      row['Status'] = sum?.isComplete ? 'Lengkap' : 'Belum Lengkap';
+      row['Total Nilai'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.totalScore) : '-';
+      row['Rata-Rata'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.averageScore) : '-';
+      row['Status'] = stats.isComplete ? 'Lengkap' : 'Belum Lengkap';
       row['Peringkat Kelas'] = sum?.classRank ?? '-';
       row['Peringkat Paralel'] = sum?.parallelRank ?? '-';
       row['Peringkat Eligible'] = sum?.eligibleRank ?? st.eligibleRank ?? '-';
@@ -298,16 +342,16 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
 
     sheets.push({ sheetName: 'Semua_Kelas_Gabungan', data: masterRows });
 
-    // 2. Individual sheet per class
+    // 2. Individual sheet per class (Strictly only subjects taught in that class)
     classes.forEach(cls => {
       const clsStudents = sortStudentsAlphabetically(
         students.filter(s => s.currentClassId === cls.id && s.status === 'aktif')
       );
-      const clsSubjects = allActiveSubjects.filter(sub => isSubjectApplicableToClass(sub, cls));
-      const subsToUse = clsSubjects.length > 0 ? clsSubjects : allActiveSubjects;
+      const subsToUse = allActiveSubjects.filter(sub => isSubjectApplicableToClass(sub, cls));
 
       const clsRows = clsStudents.map((st, idx) => {
         const sum = summaryMap.get(st.id);
+        const stats = getStudentClassStats(st.id, cls);
         const row: Record<string, any> = {
           'No.': idx + 1,
           'NIS': st.nis,
@@ -321,9 +365,9 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
           row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : '';
         });
 
-        row['Total Nilai'] = sum?.totalScore ? formatIndonesianNumber(sum.totalScore) : '-';
-        row['Rata-Rata'] = sum?.averageScore ? formatIndonesianNumber(sum.averageScore) : '-';
-        row['Status'] = sum?.isComplete ? 'Lengkap' : 'Belum Lengkap';
+        row['Total Nilai'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.totalScore) : '-';
+        row['Rata-Rata'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.averageScore) : '-';
+        row['Status'] = stats.isComplete ? 'Lengkap' : 'Belum Lengkap';
         row['Peringkat Kelas'] = sum?.classRank ?? '-';
         row['Peringkat Paralel'] = sum?.parallelRank ?? '-';
         row['Peringkat Eligible'] = sum?.eligibleRank ?? st.eligibleRank ?? '-';
@@ -415,7 +459,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     downloadAllSubjectsTemplate({
       classes: targetClasses,
       students,
-      subjects: displayedSubjects,
+      subjects: sortSubjects(subjects.filter(s => s.isActive)),
       semesterName: activeSemester?.name || 'Semester',
       existingGradesMap: allSemesterGradesMap,
       includeExistingScores: includeExistingInTemplate,
@@ -919,8 +963,12 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
                   onChange={e => setSubjectScope(e.target.value as 'grade_level' | 'all')}
                   className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
-                  <option value="all">Semua Mata Pelajaran ({subjects.filter(s => s.isActive).length})</option>
-                  <option value="grade_level">Sesuai Tingkat Kelas {currentClass?.gradeLevel}</option>
+                  <option value="grade_level">
+                    Sesuai Mapel {currentClass?.name || `Kelas ${currentClass?.gradeLevel || ''}`} ({applicableClassSubjects.length} Mapel)
+                  </option>
+                  <option value="all">
+                    Semua Mapel Sekolah ({subjects.filter(s => s.isActive).length} Mapel)
+                  </option>
                 </select>
               </div>
 
@@ -1033,6 +1081,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
                 <tbody className="divide-y divide-slate-200">
                   {classStudents.map((st, idx) => {
                     const sum = summaryMap.get(st.id);
+                    const stats = getStudentClassStats(st.id, currentClass);
                     return (
                       <tr key={st.id} className="hover:bg-slate-50/80 transition">
                         <td className="py-2 px-2 text-center font-mono text-slate-500 border-r border-slate-200">
@@ -1077,10 +1126,10 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
                           );
                         })}
                         <td className="py-2 px-2 text-center font-mono font-extrabold text-blue-900 bg-blue-50/30 border-r border-slate-200">
-                          {sum?.averageScore ? formatIndonesianNumber(sum.averageScore) : '-'}
+                          {stats.completedCount > 0 ? formatIndonesianNumber(stats.averageScore) : '-'}
                         </td>
                         <td className="py-2 px-2 text-center border-r border-slate-200">
-                          {sum?.isComplete ? (
+                          {stats.isComplete ? (
                             <span className="text-[10px] font-bold text-emerald-700">Lengkap</span>
                           ) : (
                             <span className="text-[10px] font-bold text-amber-600">Belum Lengkap</span>

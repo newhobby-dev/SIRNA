@@ -43,10 +43,10 @@ export const SubjectManagement: React.FC = () => {
   const filteredSubjects = useMemo(() => {
     return orderedSubjects.filter(subj => {
       if (filterGrade !== 'ALL') {
-        if (subj.targetClassIds && subj.targetClassIds.length > 0) {
-          const targetClasses = classes.filter(c => subj.targetClassIds?.includes(c.id));
-          if (!targetClasses.some(c => c.gradeLevel === filterGrade)) return false;
-        } else if (subj.gradeLevel !== 'Semua' && subj.gradeLevel !== filterGrade) {
+        const gradeClasses = classes.filter(c => c.gradeLevel === filterGrade);
+        if (gradeClasses.length > 0) {
+          if (!gradeClasses.some(c => isSubjectApplicableToClass(subj, c))) return false;
+        } else if (subj.gradeLevel !== 'Semua' && !String(subj.gradeLevel).split(',').includes(filterGrade)) {
           return false;
         }
       }
@@ -216,8 +216,8 @@ export const SubjectManagement: React.FC = () => {
     let finalGradeLevel = formData.gradeLevel || 'Semua';
     if (finalTargetClassIds.length > 0) {
       const selectedClassObjs = classes.filter(c => finalTargetClassIds.includes(c.id));
-      const uniqueGrades = Array.from(new Set(selectedClassObjs.map(c => c.gradeLevel)));
-      finalGradeLevel = uniqueGrades.length === 1 ? uniqueGrades[0] : 'Semua';
+      const uniqueGrades = Array.from(new Set(selectedClassObjs.map(c => c.gradeLevel))).sort();
+      finalGradeLevel = uniqueGrades.length === 1 ? uniqueGrades[0] : uniqueGrades.join(',');
     }
 
     const desiredSortOrder = Number(formData.sortOrder) || orderedSubjects.length + 1;
@@ -246,14 +246,21 @@ export const SubjectManagement: React.FC = () => {
   };
 
   const renderSubjectClassDetails = (subj: Subject) => {
+    const matchedClasses = classes.filter(c => isSubjectApplicableToClass(subj, c));
+    const hasGrade10 = matchedClasses.some(c => c.gradeLevel === '10');
+
     if (subj.targetClassIds && subj.targetClassIds.length > 0) {
-      const matchedClasses = classes.filter(c => subj.targetClassIds?.includes(c.id));
       return (
         <div className="space-y-1">
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
               Khusus {matchedClasses.length} Kelas Tertentu
             </span>
+            {!hasGrade10 && (
+              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                Tidak Ada di Kelas X
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-1">
             {matchedClasses.map(cls => (
@@ -283,15 +290,21 @@ export const SubjectManagement: React.FC = () => {
       );
     }
 
-    const gradeClasses = classes.filter(c => c.gradeLevel === subj.gradeLevel);
     return (
       <div>
-        <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-          Seluruh Kelas {subj.gradeLevel}
-        </span>
-        {gradeClasses.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Kelas Tingkat {subj.gradeLevel.replace(',', ' & ')}
+          </span>
+          {!hasGrade10 && (
+            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+              Tidak Ada di Kelas X
+            </span>
+          )}
+        </div>
+        {matchedClasses.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
-            {gradeClasses.map(cls => (
+            {matchedClasses.map(cls => (
               <span
                 key={cls.id}
                 className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200"
@@ -612,7 +625,30 @@ export const SubjectManagement: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setClassScopeMode('specific_classes')}
+                    onClick={() => {
+                      if ((formData.targetClassIds || []).length === 0) {
+                        const prematched = classes
+                          .filter(c =>
+                            isSubjectApplicableToClass(
+                              {
+                                id: 'temp',
+                                code: formData.code || '',
+                                name: formData.name || '',
+                                category: (formData.category as any) || 'Kelompok A (Umum)',
+                                gradeLevel: formData.gradeLevel || 'Semua',
+                                targetClassIds: [],
+                                isMandatory: true,
+                                weight: 1,
+                                isActive: true,
+                              },
+                              c
+                            )
+                          )
+                          .map(c => c.id);
+                        setFormData(prev => ({ ...prev, targetClassIds: prematched }));
+                      }
+                      setClassScopeMode('specific_classes');
+                    }}
                     className={`py-2 px-3 rounded-lg transition cursor-pointer text-center ${
                       classScopeMode === 'specific_classes'
                         ? 'bg-cyan-600 text-white shadow-xs'
@@ -640,26 +676,46 @@ export const SubjectManagement: React.FC = () => {
                       className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-900"
                     >
                       <option value="Semua">Semua Tingkat (Seluruh Kelas X, XI, XII)</option>
-                      <option value="10">Seluruh Kelas 10 (Fase E / X-A s.d. X-E)</option>
-                      <option value="11">Seluruh Kelas 11 (Fase F / XI-A s.d. XI-E)</option>
-                      <option value="12">Seluruh Kelas 12 (Fase F / XII-A s.d. XII-E)</option>
+                      <option value="10">Hanya Kelas 10 / X (Fase E / X-A s.d. X-E)</option>
+                      <option value="11">Hanya Kelas 11 / XI (Fase F / XI-A s.d. XI-E)</option>
+                      <option value="12">Hanya Kelas 12 / XII (Fase F / XII-A s.d. XII-E)</option>
+                      <option value="11,12">Kelas 11 & 12 — Fase F (Tidak Ada di Kelas X)</option>
+                      <option value="10,11">Kelas 10 & 11 (Tidak Ada di Kelas XII)</option>
                     </select>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <span className="text-[11px] font-bold text-slate-700">
                         Centang Kelas yang Mempelajari Mapel Ini ({formData.targetClassIds?.length || 0} Kelas Dipilih):
                       </span>
-                      {(formData.targetClassIds?.length || 0) > 0 && (
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setFormData({ ...formData, targetClassIds: [] })}
-                          className="text-[11px] text-rose-600 hover:underline font-bold cursor-pointer"
+                          onClick={() => {
+                            const nonGrade10Ids = classes
+                              .filter(c => c.gradeLevel !== '10')
+                              .map(c => c.id);
+                            setFormData({
+                              ...formData,
+                              targetClassIds: nonGrade10Ids,
+                              gradeLevel: '11,12',
+                            });
+                          }}
+                          className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200 font-bold cursor-pointer"
                         >
-                          Reset Pilihan
+                          Hanya Kelas XI & XII (Tanpa Kelas X)
                         </button>
-                      )}
+                        {(formData.targetClassIds?.length || 0) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, targetClassIds: [] })}
+                            className="text-[11px] text-rose-600 hover:underline font-bold cursor-pointer"
+                          >
+                            Reset Pilihan
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {Object.entries(classesByGrade).map(([grade, gradeClasses]) => {

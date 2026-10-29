@@ -28,6 +28,7 @@ import {
   getPredicateForScore,
   exportExcelWorkbook,
   sortSubjects,
+  isSubjectApplicableToClass,
 } from '../../lib/utils';
 import { Student, GradeEntry, AcademicSummary, Semester } from '../../types';
 
@@ -162,26 +163,34 @@ export const StudentPortal: React.FC = () => {
     return semType === '1' ? 1 : 2;
   };
 
-  // Published grades for this student and active semester, sorted by subject sortOrder
+  // Published grades for this student and active semester, sorted by subject sortOrder and filtered by class applicability
   const studentGrades = useMemo(() => {
     if (!verifiedStudent) return [];
     const sortedSubjOrder = new Map<string, number>();
+    const subjectsById = new Map(subjects.map(s => [s.id, s]));
     sortSubjects(subjects).forEach((s, idx) => sortedSubjOrder.set(s.id, idx));
 
+    const currentCls = classes.find(c => c.id === verifiedStudent.currentClassId);
+
     return gradeEntries
-      .filter(
-        g =>
-          g.studentId === verifiedStudent.id &&
-          g.semesterId === activeSemId &&
-          g.status === 'published'
-      )
+      .filter(g => {
+        if (g.studentId !== verifiedStudent.id || g.semesterId !== activeSemId || g.status !== 'published') {
+          return false;
+        }
+        const subjObj = subjectsById.get(g.subjectId);
+        const gradeCls = classes.find(c => c.id === g.classId) || currentCls;
+        if (subjObj && gradeCls && !isSubjectApplicableToClass(subjObj, gradeCls)) {
+          return false;
+        }
+        return true;
+      })
       .sort((a, b) => {
         const ordA = sortedSubjOrder.get(a.subjectId) ?? 9999;
         const ordB = sortedSubjOrder.get(b.subjectId) ?? 9999;
         if (ordA !== ordB) return ordA - ordB;
         return a.subjectName.localeCompare(b.subjectName, 'id');
       });
-  }, [verifiedStudent, activeSemId, gradeEntries, subjects]);
+  }, [verifiedStudent, activeSemId, gradeEntries, subjects, classes]);
 
   // Student summary for this semester (including manual ranks input by Admin)
   const studentSummary = useMemo(() => {
@@ -262,6 +271,9 @@ export const StudentPortal: React.FC = () => {
       }
     });
 
+    const currentStudentClass = classes.find(c => c.id === verifiedStudent.currentClassId);
+    const subjectsById = new Map(subjects.map(s => [s.id, s]));
+
     const rows = Array.from(subjectMap.values())
       .map(row => {
         const scores = Object.values(row.semScores);
@@ -271,12 +283,22 @@ export const StudentPortal: React.FC = () => {
           average: avg,
         };
       })
-      .filter(
-        row =>
+      .filter(row => {
+        const subjObj = subjectsById.get(row.id);
+        const isApplicableToCurrentClass = subjObj
+          ? isSubjectApplicableToClass(subjObj, currentStudentClass)
+          : true;
+
+        if (!isApplicableToCurrentClass && Object.keys(row.semScores).length === 0) {
+          return false;
+        }
+
+        return (
           Object.keys(row.semScores).length > 0 ||
-          row.category.includes('Kelompok A') ||
-          row.category.includes('Kelompok B')
-      );
+          (isApplicableToCurrentClass &&
+            (row.category.includes('Kelompok A') || row.category.includes('Kelompok B')))
+        );
+      });
 
     const semesterAverages: { [key: number]: { average: number | null; count: number } } = {};
     let totalAllScores = 0;

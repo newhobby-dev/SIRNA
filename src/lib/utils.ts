@@ -494,6 +494,30 @@ export function sortSubjects(subjects: Subject[]): Subject[] {
 }
 
 /**
+ * Menormalisasi representasi tingkat kelas (misal 'X' -> '10', 'XI' -> '11', 'XII' -> '12')
+ * agar perbandingan tingkat antara Mata Pelajaran dan Kelas selalu akurat.
+ */
+export function normalizeGradeLevel(grade?: string, classNameOrCode?: string): string {
+  const raw = String(grade || '').trim().toUpperCase();
+  if (raw === 'SEMUA' || raw === 'ALL') return 'Semua';
+  if (raw === '12' || raw === 'XII' || raw.startsWith('12 ') || raw.startsWith('XII')) return '12';
+  if (raw === '11' || raw === 'XI' || raw.startsWith('11 ') || raw.startsWith('XI')) return '11';
+  if (raw === '10' || raw === 'X' || raw.startsWith('10 ') || raw.startsWith('X')) return '10';
+  if (raw === '9' || raw === 'IX') return '9';
+  if (raw === '8' || raw === 'VIII') return '8';
+  if (raw === '7' || raw === 'VII') return '7';
+
+  if (classNameOrCode) {
+    const codeUpper = classNameOrCode.trim().toUpperCase();
+    if (/\b(XII|12)\b/.test(codeUpper) || codeUpper.startsWith('XII-') || codeUpper.startsWith('12-')) return '12';
+    if (/\b(XI|11)\b/.test(codeUpper) || codeUpper.startsWith('XI-') || codeUpper.startsWith('11-')) return '11';
+    if (/\b(X|10)\b/.test(codeUpper) || codeUpper.startsWith('X-') || codeUpper.startsWith('10-')) return '10';
+  }
+
+  return raw || 'Semua';
+}
+
+/**
  * Mengecek apakah suatu Mata Pelajaran dipelajari pada Kelas/Rombel tertentu secara detail.
  * - Jika subject.targetClassIds berisi daftar ID kelas spesifik (misal hanya ['cls_xi_d']),
  *   maka mata pelajaran tersebut HANYA berlaku di kelas yang terdaftar di targetClassIds.
@@ -501,10 +525,23 @@ export function sortSubjects(subjects: Subject[]): Subject[] {
  */
 export function isSubjectApplicableToClass(subject: Subject, cls?: ClassRoom | null): boolean {
   if (!cls) return true;
-  if (subject.targetClassIds && subject.targetClassIds.length > 0) {
+  if (Array.isArray(subject.targetClassIds) && subject.targetClassIds.length > 0) {
     return subject.targetClassIds.includes(cls.id);
   }
-  return !subject.gradeLevel || subject.gradeLevel === 'Semua' || subject.gradeLevel === cls.gradeLevel;
+  const rawGrade = String(subject.gradeLevel || '').trim();
+  if (!rawGrade || rawGrade.toUpperCase() === 'SEMUA' || rawGrade.toUpperCase() === 'ALL') {
+    return true;
+  }
+  const clsGrade = normalizeGradeLevel(cls.gradeLevel, `${cls.code || ''} ${cls.name || ''}`);
+  if (rawGrade.includes(',')) {
+    const allowedGrades = rawGrade
+      .split(',')
+      .map(part => normalizeGradeLevel(part.trim()))
+      .filter(Boolean);
+    return allowedGrades.includes(clsGrade);
+  }
+  const subjGrade = normalizeGradeLevel(rawGrade);
+  return subjGrade === clsGrade;
 }
 
 /**
@@ -537,11 +574,10 @@ export function downloadAllSubjectsTemplate(params: {
       students.filter(s => s.currentClassId === cls.id && s.status === 'aktif')
     );
 
-    // Filter subjects applicable to this specific class (or all active subjects if none match)
-    const classSubjects = sortedAllSubjects.filter(
+    // Filter subjects strictly applicable to this specific class
+    const subjectsToUse = sortedAllSubjects.filter(
       sub => sub.isActive && isSubjectApplicableToClass(sub, cls)
     );
-    const subjectsToUse = classSubjects.length > 0 ? classSubjects : sortedAllSubjects.filter(s => s.isActive);
 
     const sheetData = classStudents.map((st, idx) => {
       const row: Record<string, any> = {
