@@ -29,6 +29,176 @@ export function sortStudentsAlphabetically<T extends Record<string, any>>(
 }
 
 /**
+ * Mengurutkan peserta didik berdasarkan Kelas/Rombel terlebih dahulu,
+ * kemudian di dalam masing-masing kelas diurutkan sesuai Abjad Nama (A-Z).
+ */
+export function sortStudentsByClassAndName(
+  students: Student[],
+  classes: ClassRoom[] = []
+): Student[] {
+  const classOrderMap = new Map<string, number>();
+  classes.forEach((cls, idx) => {
+    classOrderMap.set(cls.id, idx);
+  });
+
+  return [...students].sort((a, b) => {
+    const orderA = classOrderMap.get(a.currentClassId) ?? 9999;
+    const orderB = classOrderMap.get(b.currentClassId) ?? 9999;
+
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+
+    const classNameCompare = String(a.currentClassName ?? '')
+      .trim()
+      .localeCompare(String(b.currentClassName ?? '').trim(), 'id', { numeric: true, sensitivity: 'base' });
+    if (classNameCompare !== 0) {
+      return classNameCompare;
+    }
+
+    const nameA = String(a.name ?? '').trim().toLowerCase();
+    const nameB = String(b.name ?? '').trim().toLowerCase();
+    const nameCompare = nameA.localeCompare(nameB, 'id', { sensitivity: 'base' });
+    if (nameCompare !== 0) {
+      return nameCompare;
+    }
+
+    return String(a.nis ?? '').trim().localeCompare(String(b.nis ?? '').trim(), 'id');
+  });
+}
+
+/**
+ * Ekspor Daftar Nama Peserta Didik ke Excel (.xlsx) yang dijamin terurut sesuai Abjad Nama (A-Z) di tiap kelas.
+ * Menyediakan Sheet Gabungan (dikelompokkan per kelas & urut abjad tiap kelas) serta Sheet terpisah untuk masing-masing kelas.
+ */
+export function exportStudentNamesByClassExcel(params: {
+  students: Student[];
+  classes: ClassRoom[];
+  targetClassId?: string; // 'ALL' atau ID kelas tertentu
+  fileNamePrefix?: string;
+}) {
+  const {
+    students,
+    classes,
+    targetClassId = 'ALL',
+    fileNamePrefix = 'Daftar_Nama_Peserta_Didik',
+  } = params;
+
+  const wb = XLSX.utils.book_new();
+
+  const targetClasses =
+    targetClassId && targetClassId !== 'ALL'
+      ? classes.filter(c => c.id === targetClassId)
+      : classes;
+
+  // Jika ekspor Semua Kelas, buat Sheet Pertama berupa Rekap Gabungan yang terurut per kelas dan A-Z di tiap kelas
+  if (!targetClassId || targetClassId === 'ALL') {
+    const combinedRows: Record<string, any>[] = [];
+    let globalNo = 1;
+
+    targetClasses.forEach(cls => {
+      const classStudents = sortStudentsAlphabetically(
+        students.filter(s => s.currentClassId === cls.id)
+      );
+
+      classStudents.forEach((st, idxInClass) => {
+        combinedRows.push({
+          'No.': globalNo++,
+          'No. Absen Kelas': idxInClass + 1,
+          'Nama Peserta Didik': st.name,
+          'L/P': st.gender,
+          'NIS': String(st.nis),
+          'NISN': String(st.nisn),
+          'Kelas / Rombel': cls.name,
+          'Status': st.status.toUpperCase(),
+        });
+      });
+    });
+
+    // Siswa yang kelasnya tidak termasuk dalam daftar targetClasses (jika ada)
+    const knownClassIds = new Set(targetClasses.map(c => c.id));
+    const unassignedStudents = sortStudentsAlphabetically(
+      students.filter(s => !knownClassIds.has(s.currentClassId))
+    );
+    unassignedStudents.forEach((st, idx) => {
+      combinedRows.push({
+        'No.': globalNo++,
+        'No. Absen Kelas': idx + 1,
+        'Nama Peserta Didik': st.name,
+        'L/P': st.gender,
+        'NIS': String(st.nis),
+        'NISN': String(st.nisn),
+        'Kelas / Rombel': st.currentClassName || 'Belum Terdaftar',
+        'Status': st.status.toUpperCase(),
+      });
+    });
+
+    const wsCombined = XLSX.utils.json_to_sheet(combinedRows);
+    wsCombined['!cols'] = [
+      { wch: 6 },
+      { wch: 16 },
+      { wch: 36 },
+      { wch: 8 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 12 },
+    ];
+    XLSX.utils.book_append_sheet(wb, wsCombined, 'Semua Kelas (Urut Abjad)');
+  }
+
+  // Buat Sheet untuk masing-masing kelas, diurutkan ketat sesuai Abjad Nama (A-Z)
+  targetClasses.forEach(cls => {
+    const classStudents = sortStudentsAlphabetically(
+      students.filter(s => s.currentClassId === cls.id)
+    );
+
+    const sheetRows = classStudents.map((st, idx) => ({
+      'No.': idx + 1,
+      'Nama Peserta Didik': st.name,
+      'L/P': st.gender,
+      'NIS': String(st.nis),
+      'NISN': String(st.nisn),
+      'Kelas / Rombel': cls.name,
+      'Status': st.status.toUpperCase(),
+    }));
+
+    if (sheetRows.length === 0) {
+      sheetRows.push({
+        'No.': 1,
+        'Nama Peserta Didik': '(Belum ada peserta didik di kelas ini)',
+        'L/P': '' as any,
+        'NIS': '',
+        'NISN': '',
+        'Kelas / Rombel': cls.name,
+        'Status': '',
+      });
+    }
+
+    const wsClass = XLSX.utils.json_to_sheet(sheetRows);
+    wsClass['!cols'] = [
+      { wch: 6 },
+      { wch: 36 },
+      { wch: 8 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 12 },
+    ];
+
+    const safeSheetName = (cls.code || cls.name || 'Kelas').substring(0, 31);
+    XLSX.utils.book_append_sheet(wb, wsClass, safeSheetName);
+  });
+
+  const scopeSuffix =
+    targetClassId && targetClassId !== 'ALL' && targetClasses[0]
+      ? targetClasses[0].code || targetClasses[0].name
+      : 'Tiap_Kelas_A-Z';
+  const safeFileName = `${fileNamePrefix}_${scopeSuffix}`.replace(/[\\/:*?"<>|\s]+/g, '_');
+  XLSX.writeFile(wb, `${safeFileName}.xlsx`);
+}
+
+/**
  * Format angka desimal standar Indonesia (misal: 87,50)
  */
 export function formatIndonesianNumber(num: number | null | undefined, decimals = 2): string {

@@ -21,7 +21,11 @@ import {
 } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import { Student, StudentStatus } from '../../types';
-import { sortStudentsAlphabetically, exportExcelWorkbook } from '../../lib/utils';
+import {
+  sortStudentsAlphabetically,
+  sortStudentsByClassAndName,
+  exportStudentNamesByClassExcel,
+} from '../../lib/utils';
 
 export const StudentManagement: React.FC = () => {
   const {
@@ -63,9 +67,11 @@ export const StudentManagement: React.FC = () => {
   const [promotionFeedback, setPromotionFeedback] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
 
-  // Students in chosen source class for promotion
+  // Students in chosen source class for promotion (sorted A-Z by name)
   const sourceStudents = useMemo(() => {
-    return students.filter(s => s.currentClassId === sourceClassId && s.status === 'aktif');
+    return sortStudentsAlphabetically(
+      students.filter(s => s.currentClassId === sourceClassId && s.status === 'aktif')
+    );
   }, [students, sourceClassId]);
 
   const handleToggleSelectAll = () => {
@@ -119,7 +125,7 @@ export const StudentManagement: React.FC = () => {
     }
   };
 
-  // Sorted and filtered students
+  // Sorted and filtered students: grouped by class and strictly alphabetical (A-Z) by name within each class
   const filteredStudents = useMemo(() => {
     let result = students;
 
@@ -141,9 +147,24 @@ export const StudentManagement: React.FC = () => {
       );
     }
 
-    // Centrally sort alphabetically using standard algorithm
+    if (selectedClassFilter === 'ALL') {
+      return sortStudentsByClassAndName(result, classes);
+    }
     return sortStudentsAlphabetically(result);
-  }, [students, selectedClassFilter, selectedStatusFilter, searchQuery]);
+  }, [students, classes, selectedClassFilter, selectedStatusFilter, searchQuery]);
+
+  // Compute per-class alphabetical rank/order number (1, 2, 3... inside each class)
+  const classSequenceMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const counters = new Map<string, number>();
+    filteredStudents.forEach(s => {
+      const clsKey = s.currentClassId || s.currentClassName || 'UNASSIGNED';
+      const nextNum = (counters.get(clsKey) || 0) + 1;
+      counters.set(clsKey, nextNum);
+      map.set(s.id, nextNum);
+    });
+    return map;
+  }, [filteredStudents]);
 
   const handleOpenAdd = () => {
     setEditingStudent(null);
@@ -224,38 +245,51 @@ export const StudentManagement: React.FC = () => {
     }
   };
 
-  const handleExportExcel = () => {
-    const dataToExport = filteredStudents.map((s, idx) => ({
-      'No.': idx + 1,
-      'NIS': s.nis,
-      'NISN': s.nisn,
-      'Nama Peserta Didik': s.name,
-      'Jenis Kelamin': s.gender === 'L' ? 'Laki-laki' : 'Perempuan',
-      'Kelas Saat Ini': s.currentClassName,
-      'Angkatan': s.cohort,
-      'Status': s.status.toUpperCase(),
-    }));
+  // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Semua Kelas (Tiap Kelas 1 Sheet + Gabungan)
+  const handleExportAllClassesByAlphabet = () => {
+    const baseStudents =
+      selectedStatusFilter === 'ALL'
+        ? students
+        : students.filter(s => s.status === selectedStatusFilter);
 
-    exportExcelWorkbook('Data_Peserta_Didik_SIRNA', [
-      { sheetName: 'Peserta Didik', data: dataToExport },
-    ]);
+    exportStudentNamesByClassExcel({
+      students: baseStudents,
+      classes,
+      targetClassId: 'ALL',
+      fileNamePrefix: 'Daftar_Nama_Peserta_Didik',
+    });
+  };
+
+  // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Kelas Tertentu
+  const handleExportSingleClassByAlphabet = (classId: string) => {
+    const baseStudents =
+      selectedStatusFilter === 'ALL'
+        ? students
+        : students.filter(s => s.status === selectedStatusFilter);
+
+    exportStudentNamesByClassExcel({
+      students: baseStudents,
+      classes,
+      targetClassId: classId,
+      fileNamePrefix: 'Daftar_Nama_Peserta_Didik',
+    });
   };
 
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Users className="w-5 h-5 text-blue-600" />
             <span>Manajemen Data Peserta Didik</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Kelola data induk siswa, penempatan rombel, identitas NIS/NISN, dan PIN akses portal nilai
+            Kelola data induk siswa, penempatan rombel, identitas NIS & NISN, serta ekspor daftar nama urut abjad tiap kelas
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => {
               setPromotionFeedback(null);
@@ -267,12 +301,26 @@ export const StudentManagement: React.FC = () => {
             <span>Kenaikan Rombel (Anti-Tertukar)</span>
           </button>
 
+          {selectedClassFilter !== 'ALL' && (
+            <button
+              onClick={() => handleExportSingleClassByAlphabet(selectedClassFilter)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition shadow-xs cursor-pointer"
+              title="Ekspor daftar nama siswa kelas yang sedang dipilih (Urut Abjad A-Z)"
+            >
+              <Download className="w-4 h-4 text-emerald-600" />
+              <span>
+                Ekspor Kelas {classes.find(c => c.id === selectedClassFilter)?.code || 'Ini'} (A-Z)
+              </span>
+            </button>
+          )}
+
           <button
-            onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition shadow-xs cursor-pointer"
+            onClick={handleExportAllClassesByAlphabet}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-sm cursor-pointer"
+            title="Unduh file Excel daftar nama peserta didik yang terurut sesuai abjad nama (A-Z) untuk tiap kelas"
           >
-            <Download className="w-4 h-4 text-slate-500" />
-            <span>Ekspor Excel</span>
+            <Download className="w-4 h-4" />
+            <span>Ekspor Nama Siswa Tiap Kelas (A-Z)</span>
           </button>
 
           <button
@@ -341,7 +389,7 @@ export const StudentManagement: React.FC = () => {
               onChange={(e) => setSelectedClassFilter(e.target.value)}
               className="bg-transparent font-semibold text-slate-800 focus:outline-none cursor-pointer"
             >
-              <option value="ALL">Semua Kelas</option>
+              <option value="ALL">Semua Kelas (Urut Abjad Tiap Kelas)</option>
               {classes.map(c => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -371,13 +419,15 @@ export const StudentManagement: React.FC = () => {
       {/* Student Data Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+          <table className="w-full text-left text-xs border-collapse min-w-[720px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
-                <th className="py-3 px-3 w-12 text-center">No.</th>
+                <th className="py-3 px-3 w-16 text-center" title="Nomor Urut Absen sesuai Abjad (A-Z) di Kelasnya">
+                  No. Kelas
+                </th>
                 <th className="py-3 px-3 w-28">NIS</th>
                 <th className="py-3 px-3 w-32">NISN</th>
-                <th className="py-3 px-4">Nama Lengkap (A-Z)</th>
+                <th className="py-3 px-4">Nama Lengkap Peserta Didik (Urut Abjad A-Z)</th>
                 <th className="py-3 px-3 w-16 text-center">L/P</th>
                 <th className="py-3 px-3">Rombel / Kelas</th>
                 <th className="py-3 px-3 text-center">Status</th>
@@ -392,62 +442,107 @@ export const StudentManagement: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((student, idx) => (
-                  <tr key={student.id} className="hover:bg-slate-50/80 transition group">
-                    <td className="py-3 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                    <td className="py-3 px-3 font-mono font-medium text-slate-700">{student.nis}</td>
-                    <td className="py-3 px-3 font-mono font-medium text-slate-700">{student.nisn}</td>
-                    <td className="py-3 px-4 font-bold text-slate-900 group-hover:text-blue-600 transition">
-                      {student.name}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                        student.gender === 'L' ? 'bg-blue-50 text-blue-700' : 'bg-pink-50 text-pink-700'
-                      }`}>
-                        {student.gender}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 font-medium text-slate-700">{student.currentClassName}</td>
-                    <td className="py-3 px-3 text-center">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        student.status === 'aktif'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : student.status === 'alumni'
-                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                          : 'bg-rose-50 text-rose-700 border border-rose-200'
-                      }`}>
-                        {student.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => handleOpenEdit(student)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition"
-                          title="Ubah Data Siswa"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(student.id, student.name)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                          title="Hapus Siswa"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                filteredStudents.map((student, idx) => {
+                  const prevStudent = idx > 0 ? filteredStudents[idx - 1] : null;
+                  const showClassHeader =
+                    selectedClassFilter === 'ALL' &&
+                    (!prevStudent || prevStudent.currentClassId !== student.currentClassId);
+                  const classSeq = classSequenceMap.get(student.id) ?? idx + 1;
+                  const classStudentCount = filteredStudents.filter(
+                    s => s.currentClassId === student.currentClassId
+                  ).length;
+
+                  return (
+                    <React.Fragment key={student.id}>
+                      {showClassHeader && (
+                        <tr className="bg-blue-50/70 border-y border-blue-100">
+                          <td colSpan={8} className="py-2 px-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white font-extrabold text-[11px]">
+                                  {student.currentClassName || 'Belum Terdaftar'}
+                                </span>
+                                <span className="text-[11px] font-semibold text-blue-900">
+                                  {classStudentCount} Peserta Didik • Terurut Abjad Nama (A–Z)
+                                </span>
+                              </div>
+                              {student.currentClassId && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleExportSingleClassByAlphabet(student.currentClassId)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-[11px] font-bold transition shadow-2xs cursor-pointer"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>Ekspor Nama {student.currentClassName} (A-Z)</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="hover:bg-slate-50/80 transition group">
+                        <td className="py-3 px-3 text-center">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-mono font-bold text-[11px]">
+                            {classSeq}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-mono font-medium text-slate-700">{student.nis}</td>
+                        <td className="py-3 px-3 font-mono font-medium text-slate-700">{student.nisn}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900 group-hover:text-blue-600 transition">
+                          {student.name}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            student.gender === 'L' ? 'bg-blue-50 text-blue-700' : 'bg-pink-50 text-pink-700'
+                          }`}>
+                            {student.gender}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-medium text-slate-700">{student.currentClassName}</td>
+                        <td className="py-3 px-3 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            student.status === 'aktif'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : student.status === 'alumni'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}>
+                            {student.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenEdit(student)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition"
+                              title="Ubah Data Siswa"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(student.id, student.name)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                              title="Hapus Siswa"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
 
         {/* Footer Count */}
-        <div className="p-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex items-center justify-between">
+        <div className="p-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <span>Menampilkan <strong>{filteredStudents.length}</strong> peserta didik</span>
-          <span className="text-[11px] text-slate-400">Pengurutan otomatis berdasarkan standar alfabetis nasional</span>
+          <span className="text-[11px] text-slate-500 font-medium">
+            ✓ Terurut otomatis sesuai abjad nama (A–Z) di tiap kelas
+          </span>
         </div>
       </div>
 

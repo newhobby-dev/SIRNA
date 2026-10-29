@@ -21,6 +21,7 @@ import { useAcademic } from '../../context/AcademicContext';
 import { PrintHeader } from '../../components/common/PrintHeader';
 import {
   sortStudentsAlphabetically,
+  sortStudentsByClassAndName,
   formatIndonesianNumber,
   formatIndonesianDate,
   exportExcelWorkbook,
@@ -199,9 +200,10 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     const allActiveSubjects = subjects.filter(s => s.isActive);
     const sheets: { sheetName: string; data: Record<string, any>[] }[] = [];
 
-    // 1. Master combined sheet of all active students across all classes
-    const allActiveStudents = sortStudentsAlphabetically(
-      students.filter(s => s.status === 'aktif')
+    // 1. Master combined sheet of all active students grouped by class and sorted A-Z within each class
+    const allActiveStudents = sortStudentsByClassAndName(
+      students.filter(s => s.status === 'aktif'),
+      classes
     );
 
     const masterRows = allActiveStudents.map((st, idx) => {

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { School, Plus, Edit2, Trash2, X, Users, BookOpen } from 'lucide-react';
+import { School, Plus, Edit2, Trash2, X, Users, BookOpen, Download } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import { ClassRoom } from '../../types';
+import { exportStudentNamesByClassExcel } from '../../lib/utils';
 
 export const ClassManagement: React.FC = () => {
-  const { classes, teachers, selectedYearId, saveClass, deleteClass } = useAcademic();
+  const { classes, students, teachers, selectedYearId, saveClass, deleteClass } = useAcademic();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassRoom | null>(null);
@@ -64,6 +65,15 @@ export const ClassManagement: React.FC = () => {
     }
   };
 
+  const handleExportClassStudents = (classId: string) => {
+    exportStudentNamesByClassExcel({
+      students: students.filter(s => s.status === 'aktif'),
+      classes,
+      targetClassId: classId,
+      fileNamePrefix: 'Daftar_Nama_Peserta_Didik',
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -73,56 +83,91 @@ export const ClassManagement: React.FC = () => {
             <span>Manajemen Rombongan Belajar (Kelas)</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Kelola rombel (X-A s/d X-H, XI, XII), tingkat/fase, jurusan, dan penunjukan wali kelas
+            Kelola rombel (X-A s/d X-H, XI, XII), tingkat/fase, jurusan, penunjukan wali kelas, dan ekspor nama siswa per kelas
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition shadow-md shadow-purple-900/30"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Kelas</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => handleExportClassStudents('ALL')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-sm cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>Ekspor Nama Siswa Tiap Kelas (A-Z)</span>
+          </button>
+
+          <button
+            onClick={handleOpenAdd}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition shadow-md shadow-purple-900/30 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Kelas</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {classes.map((cls) => (
-          <div
-            key={cls.id}
-            className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-purple-300 transition"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-purple-50 text-purple-700 border border-purple-200">
-                {cls.code}
-              </span>
-              <div className="flex items-center gap-1">
+        {classes.map((cls) => {
+          const activeStudentCount = students.filter(
+            s => s.currentClassId === cls.id && s.status === 'aktif'
+          ).length;
+
+          return (
+            <div
+              key={cls.id}
+              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-purple-300 transition flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-purple-50 text-purple-700 border border-purple-200">
+                      {cls.code}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700">
+                      <Users className="w-3 h-3 text-slate-500" />
+                      <span>{activeStudentCount} Siswa</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleOpenEdit(cls)}
+                      className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                      title="Ubah Kelas"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(cls.id, cls.name)}
+                      className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                      title="Hapus Kelas"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <h3 className="text-base font-bold text-slate-900">{cls.name}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Tingkat {cls.gradeLevel} • {cls.major}</p>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Wali Kelas:</span>
+                  <span className="font-semibold text-slate-800">{cls.homeroomTeacherName || 'Belum Ditunjuk'}</span>
+                </div>
                 <button
-                  onClick={() => handleOpenEdit(cls)}
-                  className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
-                  title="Ubah Kelas"
+                  type="button"
+                  onClick={() => handleExportClassStudents(cls.id)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-[11px] transition cursor-pointer shrink-0"
+                  title={`Unduh daftar nama peserta didik ${cls.name} urut abjad A-Z`}
                 >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => handleDelete(cls.id, cls.name)}
-                  className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                  title="Hapus Kelas"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Ekspor Nama (A-Z)</span>
                 </button>
               </div>
             </div>
-
-            <h3 className="text-base font-bold text-slate-900">{cls.name}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Tingkat {cls.gradeLevel} • {cls.major}</p>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 text-xs">
-              <span className="text-slate-400 block text-[11px]">Wali Kelas:</span>
-              <span className="font-semibold text-slate-800">{cls.homeroomTeacherName || 'Belum Ditunjuk'}</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {isModalOpen && (
