@@ -110,6 +110,7 @@ export interface Subject {
   name: string;
   category: 'Kelompok A (Umum)' | 'Kelompok B (Umum)' | 'Kelompok C (Peminatan)' | 'Muatan Lokal';
   gradeLevel: string; // "Semua", "10", "11", "12"
+  targetClassIds?: string[]; // Daftar ID kelas spesifik (misal hanya kelas XI-D). Jika kosong/undefined maka berlaku untuk semua kelas sesuai gradeLevel
   isMandatory: boolean;
   weight: number; // default 1
   isActive: boolean;

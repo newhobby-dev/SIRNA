@@ -5,6 +5,8 @@ import {
   Search,
   Filter,
   Download,
+  Upload,
+  FileSpreadsheet,
   Edit2,
   Trash2,
   CheckCircle,
@@ -25,6 +27,9 @@ import {
   sortStudentsAlphabetically,
   sortStudentsByClassAndName,
   exportStudentNamesByClassExcel,
+  downloadStudentImportTemplate,
+  parseStudentExcelFile,
+  StudentExcelImportRow,
 } from '../../lib/utils';
 
 export const StudentManagement: React.FC = () => {
@@ -32,6 +37,7 @@ export const StudentManagement: React.FC = () => {
     students,
     classes,
     saveStudent,
+    saveStudentsBatch,
     deleteStudent,
     promoteStudentsBatch,
     selectedYearId,
@@ -60,12 +66,48 @@ export const StudentManagement: React.FC = () => {
 
   // Promotion Modal State (Directive 8)
   const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
-  const [promotionMode, setPromotionMode] = useState<'xi_to_xii' | 'x_to_xi'>('xi_to_xii');
-  const [sourceClassId, setSourceClassId] = useState<string>(classes[0]?.id || '');
-  const [targetClassId, setTargetClassId] = useState<string>(classes[1]?.id || classes[0]?.id || '');
+  const [promotionMode, setPromotionMode] = useState<'x_to_xi' | 'xi_to_xii'>('x_to_xi');
+  const [sourceClassId, setSourceClassId] = useState<string>(() => {
+    const firstX = classes.find(c => c.gradeLevel === '10' || c.code.startsWith('X-'));
+    return firstX?.id || classes[0]?.id || '';
+  });
+  const [targetClassId, setTargetClassId] = useState<string>(() => {
+    const firstXI = classes.find(c => c.gradeLevel === '11' || c.code.startsWith('XI-'));
+    return firstXI?.id || classes[1]?.id || classes[0]?.id || '';
+  });
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [promotionFeedback, setPromotionFeedback] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
+
+  // Excel Upload Modal State
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
+  const [excelFallbackClassId, setExcelFallbackClassId] = useState<string>('ALL');
+  const [excelFileName, setExcelFileName] = useState<string>('');
+  const [excelParsedData, setExcelParsedData] = useState<{
+    rows: StudentExcelImportRow[];
+    totalValid: number;
+    totalCreate: number;
+    totalUpdate: number;
+    totalErrors: number;
+  } | null>(null);
+  const [isImportingExcel, setIsImportingExcel] = useState(false);
+  const [excelImportSuccessMsg, setExcelImportSuccessMsg] = useState<string | null>(null);
+
+  const handleSwitchPromotionMode = (mode: 'x_to_xi' | 'xi_to_xii') => {
+    setPromotionMode(mode);
+    setSelectedStudentIds([]);
+    if (mode === 'x_to_xi') {
+      const src = classes.find(c => c.gradeLevel === '10' || c.code.startsWith('X-'));
+      const tgt = classes.find(c => c.gradeLevel === '11' || c.code.startsWith('XI-'));
+      if (src) setSourceClassId(src.id);
+      if (tgt) setTargetClassId(tgt.id);
+    } else {
+      const src = classes.find(c => c.gradeLevel === '11' || c.code.startsWith('XI-'));
+      const tgt = classes.find(c => c.gradeLevel === '12' || c.code.startsWith('XII'));
+      if (src) setSourceClassId(src.id);
+      if (tgt) setTargetClassId(tgt.id);
+    }
+  };
 
   // Students in chosen source class for promotion (sorted A-Z by name)
   const sourceStudents = useMemo(() => {
@@ -275,6 +317,74 @@ export const StudentManagement: React.FC = () => {
     });
   };
 
+  const handleExcelFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExcelFileName(file.name);
+    setExcelImportSuccessMsg(null);
+    try {
+      const parsed = await parseStudentExcelFile(
+        file,
+        classes,
+        students,
+        excelFallbackClassId
+      );
+      setExcelParsedData(parsed);
+    } catch (err: any) {
+      alert('Gagal membaca file Excel: ' + (err.message || 'Pastikan format file adalah .xlsx atau .xls'));
+    }
+    e.target.value = '';
+  };
+
+  const handleConfirmExcelImport = async () => {
+    if (!excelParsedData || excelParsedData.totalValid === 0) return;
+    setIsImportingExcel(true);
+    try {
+      const validRows = excelParsedData.rows.filter(r => r.isValid);
+      const now = Date.now();
+
+      const studentsToSave: Student[] = validRows.map((r, idx) => {
+        const existing = r.existingStudentId
+          ? students.find(s => s.id === r.existingStudentId)
+          : undefined;
+        const targetClass = classes.find(c => c.id === r.classId);
+
+        return {
+          id: existing ? existing.id : `std_${now}_${idx}`,
+          nis: r.nis,
+          nisn: r.nisn,
+          name: r.name,
+          gender: r.gender,
+          cohort: r.admissionYear || existing?.cohort || '2026',
+          status: r.status || existing?.status || 'aktif',
+          currentClassId: r.classId,
+          currentClassName: targetClass?.name || r.className,
+          portalPin: existing?.portalPin || '',
+          eligibleRank: existing?.eligibleRank ?? null,
+          classHistory: existing?.classHistory || [
+            {
+              academicYearId: targetClass?.academicYearId || selectedYearId,
+              semesterId: selectedSemesterId,
+              classId: r.classId,
+              className: targetClass?.name || r.className,
+            },
+          ],
+        };
+      });
+
+      await saveStudentsBatch(studentsToSave);
+      setExcelImportSuccessMsg(
+        `Berhasil mengimpor ${studentsToSave.length} peserta didik (${excelParsedData.totalCreate} baru, ${excelParsedData.totalUpdate} diperbarui). Daftar otomatis diurutkan sesuai abjad tiap kelas.`
+      );
+      setExcelParsedData(null);
+      setExcelFileName('');
+    } catch (err: any) {
+      alert('Gagal menyimpan data peserta didik: ' + (err.message || 'Error'));
+    } finally {
+      setIsImportingExcel(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Header */}
@@ -285,22 +395,11 @@ export const StudentManagement: React.FC = () => {
             <span>Manajemen Data Peserta Didik</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Kelola data induk siswa, penempatan rombel, identitas NIS & NISN, serta ekspor daftar nama urut abjad tiap kelas
+            Kelola data induk siswa, penempatan rombel, identitas NIS & NISN, unggah & ekspor daftar nama urut abjad tiap kelas
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => {
-              setPromotionFeedback(null);
-              setIsPromotionModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition shadow-xs cursor-pointer"
-          >
-            <GraduationCap className="w-4 h-4" />
-            <span>Kenaikan Rombel (Anti-Tertukar)</span>
-          </button>
-
           {selectedClassFilter !== 'ALL' && (
             <button
               onClick={() => handleExportSingleClassByAlphabet(selectedClassFilter)}
@@ -321,6 +420,21 @@ export const StudentManagement: React.FC = () => {
           >
             <Download className="w-4 h-4" />
             <span>Ekspor Nama Siswa Tiap Kelas (A-Z)</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setExcelFallbackClassId(selectedClassFilter !== 'ALL' ? selectedClassFilter : 'ALL');
+              setExcelParsedData(null);
+              setExcelFileName('');
+              setExcelImportSuccessMsg(null);
+              setIsExcelModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm cursor-pointer"
+            title="Unggah data peserta didik secara massal dari berkas Excel (.xlsx / .xls)"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Unggah Excel Siswa</span>
           </button>
 
           <button
@@ -357,6 +471,7 @@ export const StudentManagement: React.FC = () => {
         <button
           onClick={() => {
             setPromotionFeedback(null);
+            handleSwitchPromotionMode('x_to_xi');
             setIsPromotionModalOpen(true);
           }}
           className="shrink-0 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition shadow-md shadow-amber-950/40 cursor-pointer flex items-center gap-1.5"
@@ -715,30 +830,11 @@ export const StudentManagement: React.FC = () => {
               </div>
             )}
 
-            {/* Mode Selector Tabs */}
+            {/* Mode Selector Tabs: Kelas X ke XI on LEFT, Kelas XI ke XII on RIGHT */}
             <div className="mt-4 grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl text-xs font-bold">
               <button
                 type="button"
-                onClick={() => {
-                  setPromotionMode('xi_to_xii');
-                  setSelectedStudentIds([]);
-                }}
-                className={`py-2 px-3 rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                  promotionMode === 'xi_to_xii'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5 text-amber-600" />
-                <span>Kelas XI ke XII (Rombel Tetap)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPromotionMode('x_to_xi');
-                  setSelectedStudentIds([]);
-                }}
+                onClick={() => handleSwitchPromotionMode('x_to_xi')}
                 className={`py-2 px-3 rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 ${
                   promotionMode === 'x_to_xi'
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -748,17 +844,30 @@ export const StudentManagement: React.FC = () => {
                 <Users className="w-3.5 h-3.5 text-blue-600" />
                 <span>Kelas X ke XI (Penjurusan)</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => handleSwitchPromotionMode('xi_to_xii')}
+                className={`py-2 px-3 rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  promotionMode === 'xi_to_xii'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-600" />
+                <span>Kelas XI ke XII (Rombel Tetap)</span>
+              </button>
             </div>
 
             {/* Explanatory Box */}
             <div className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600">
-              {promotionMode === 'xi_to_xii' ? (
+              {promotionMode === 'x_to_xi' ? (
                 <p>
-                  <strong className="text-amber-800">Prinsip Kelas XI ke XII:</strong> Rombongan belajar <strong>TIDAK BERGANTI</strong>. Siswa satu rombel (misal XI-MIPA-1) dinaikkan secara utuh ke rombel tingkat XII (misal XII-MIPA-1) tanpa diacak, menjamin keutuhan data dan mencegah nilai tertukar.
+                  <strong className="text-blue-800">Prinsip Kelas X ke XI:</strong> Rombel <strong>BERGANTI</strong> karena peserta didik memilih konsentrasi keahlian / mata pelajaran pilihan (Fase F). Centang siswa dari kelas X asal, lalu tempatkan ke rombel kelas XI tujuan.
                 </p>
               ) : (
                 <p>
-                  <strong className="text-blue-800">Prinsip Kelas X ke XI:</strong> Rombel <strong>BERGANTI</strong> karena peserta didik memilih konsentrasi keahlian / mata pelajaran pilihan (Fase F). Centang siswa dari kelas X asal, lalu tempatkan ke rombel kelas XI tujuan.
+                  <strong className="text-amber-800">Prinsip Kelas XI ke XII:</strong> Rombongan belajar <strong>TIDAK BERGANTI</strong>. Siswa satu rombel (misal XI-A) dinaikkan secara utuh ke rombel tingkat XII (misal XII-A) tanpa diacak, menjamin keutuhan data dan mencegah nilai tertukar.
                 </p>
               )}
             </div>
@@ -899,6 +1008,212 @@ export const StudentManagement: React.FC = () => {
                   <GraduationCap className="w-4 h-4" />
                   <span>
                     {isPromoting ? 'Memproses...' : promotionMode === 'xi_to_xii' ? 'Naikkan Rombel Utuh' : 'Pindahkan Siswa Terpilih'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Excel Upload Modal */}
+      {isExcelModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Unggah Data Peserta Didik via Excel
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Impor daftar peserta didik baru atau perbarui data siswa secara massal (otomatis terurut abjad A-Z tiap kelas)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsExcelModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {excelImportSuccessMsg && (
+              <div className="mt-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{excelImportSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Step 1 & Step 2 Controls */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
+                <div>
+                  <span className="inline-block px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 font-bold text-[10px] uppercase mb-1.5">
+                    Langkah 1: Template & Kelas Default
+                  </span>
+                  <h3 className="font-bold text-slate-800 text-xs">
+                    Unduh Format Template Excel Peserta Didik
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Berisi kolom NIS, NISN, Nama Peserta Didik, L/P, Kelas / Rombel, Angkatan, dan Status. Anda juga dapat mengunggah hasil file Ekspor Nama Siswa.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Kelas Tujuan Default (Jika kolom Kelas di Excel dikosongkan):
+                    </label>
+                    <select
+                      value={excelFallbackClassId}
+                      onChange={(e) => setExcelFallbackClassId(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-semibold text-slate-800 text-xs"
+                    >
+                      <option value="ALL">Sesuai Kolom "Kelas / Rombel" di File Excel</option>
+                      {classes.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadStudentImportTemplate(classes, excelFallbackClassId)}
+                    className="w-full py-2 px-3 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh Template Excel Siswa (.xlsx)</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-indigo-50/50 border border-indigo-200/80 flex flex-col justify-between gap-3">
+                <div>
+                  <span className="inline-block px-2 py-0.5 rounded bg-indigo-600 text-white font-bold text-[10px] uppercase mb-1.5">
+                    Langkah 2: Pilih File Excel
+                  </span>
+                  <h3 className="font-bold text-slate-800 text-xs">
+                    Unggah Berkas Excel (.xlsx / .xls)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Sistem akan memvalidasi keunikan NIS & NISN serta mencocokkan kode kelas secara otomatis sebelum disimpan.
+                  </p>
+                </div>
+
+                <label className="flex flex-col items-center justify-center border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-white rounded-xl p-4 cursor-pointer transition text-center">
+                  <Upload className="w-6 h-6 text-indigo-600 mb-1" />
+                  <span className="text-xs font-bold text-indigo-700">
+                    {excelFileName ? `Berkas: ${excelFileName}` : 'Klik untuk Memilih File Excel (.xlsx)'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">
+                    Mendukung 1 sheet gabungan maupun multi-sheet per kelas
+                  </span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleExcelFileChange}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Preview Table */}
+            {excelParsedData && (
+              <div className="mt-4 flex-1 flex flex-col min-h-0">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-bold">
+                      Total Baris: {excelParsedData.rows.length}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                      Siap Impor: {excelParsedData.totalValid} ({excelParsedData.totalCreate} Siswa Baru, {excelParsedData.totalUpdate} Perbarui)
+                    </span>
+                    {excelParsedData.totalErrors > 0 && (
+                      <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                        Perlu Perbaikan: {excelParsedData.totalErrors} Baris
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left text-xs min-w-[680px]">
+                    <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 sticky top-0">
+                      <tr>
+                        <th className="py-2.5 px-3 w-12 text-center">Baris</th>
+                        <th className="py-2.5 px-3">Nama Peserta Didik</th>
+                        <th className="py-2.5 px-2 text-center w-12">L/P</th>
+                        <th className="py-2.5 px-3 w-24">NIS</th>
+                        <th className="py-2.5 px-3 w-28">NISN</th>
+                        <th className="py-2.5 px-3">Kelas / Rombel</th>
+                        <th className="py-2.5 px-3 text-center">Status Validasi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {excelParsedData.rows.map((r, idx) => (
+                        <tr key={idx} className={r.isValid ? 'hover:bg-slate-50' : 'bg-rose-50/40'}>
+                          <td className="py-2 px-3 text-center font-mono text-slate-400">#{r.rowNumber}</td>
+                          <td className="py-2 px-3 font-semibold text-slate-900">{r.name || '-'}</td>
+                          <td className="py-2 px-2 text-center font-bold text-slate-600">{r.gender}</td>
+                          <td className="py-2 px-3 font-mono text-slate-700">{r.nis || '-'}</td>
+                          <td className="py-2 px-3 font-mono text-slate-700">{r.nisn || '-'}</td>
+                          <td className="py-2 px-3 font-semibold text-blue-700">{r.className}</td>
+                          <td className="py-2 px-3 text-center">
+                            {r.isValid ? (
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  r.mode === 'create'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                }`}
+                              >
+                                {r.mode === 'create' ? '✓ Siswa Baru' : '↻ Perbarui Data'}
+                              </span>
+                            ) : (
+                              <div className="text-[10px] text-rose-600 font-semibold text-left">
+                                {r.errors.join(' • ')}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 text-xs">
+              <span className="text-slate-500 text-[11px]">
+                Data yang diimpor otomatis diurutkan sesuai Abjad Nama (A–Z) pada masing-masing kelas.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExcelModalOpen(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  disabled={!excelParsedData || excelParsedData.totalValid === 0 || isImportingExcel}
+                  onClick={handleConfirmExcelImport}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  <span>
+                    {isImportingExcel
+                      ? 'Menyimpan...'
+                      : `Simpan ${excelParsedData?.totalValid || 0} Data Peserta Didik`}
                   </span>
                 </button>
               </div>

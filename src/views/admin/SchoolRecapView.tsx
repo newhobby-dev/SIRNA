@@ -28,6 +28,7 @@ import {
   downloadAllSubjectsTemplate,
   parseAllSubjectsExcelFile,
   AllSubjectsParseResult,
+  isSubjectApplicableToClass,
 } from '../../lib/utils';
 import { GradeEntry, GradeStatus } from '../../types';
 
@@ -98,9 +99,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     if (subjectScope === 'all' || !currentClass) {
       return allActive;
     }
-    const filtered = allActive.filter(
-      s => !s.gradeLevel || s.gradeLevel === 'Semua' || s.gradeLevel === currentClass.gradeLevel
-    );
+    const filtered = allActive.filter(s => isSubjectApplicableToClass(s, currentClass));
     return filtered.length > 0 ? filtered : allActive;
   }, [subjects, subjectScope, currentClass]);
 

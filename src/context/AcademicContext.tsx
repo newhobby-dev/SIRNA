@@ -38,7 +38,7 @@ import {
   initialGradeEntries,
   defaultSummaries,
 } from '../lib/seedData';
-import { assignCompetitionRanks, sortStudentsAlphabetically } from '../lib/utils';
+import { assignCompetitionRanks, sortStudentsAlphabetically, isSubjectApplicableToClass } from '../lib/utils';
 import { useAuth } from './AuthContext';
 
 interface AcademicContextType {
@@ -79,6 +79,7 @@ interface AcademicContextType {
   // Management CRUD
   updateSchoolSettings: (settings: Partial<SchoolSetting>) => Promise<void>;
   saveStudent: (student: Student) => Promise<void>;
+  saveStudentsBatch: (studentsToSave: Student[]) => Promise<void>;
   deleteStudent: (studentId: string) => Promise<void>;
   saveClass: (cls: ClassRoom) => Promise<void>;
   deleteClass: (classId: string) => Promise<void>;
@@ -679,11 +680,15 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const completedCount = validCompletedScores.length;
       const averageScore = completedCount > 0 ? Math.round((totalScore / completedCount) * 100) / 100 : 0;
 
-      // Cek kelengkapan mata pelajaran wajib
-      const completedMandatoryIds = new Set(
-        studentGrades.filter(g => mandatorySubjectIds.has(g.subjectId)).map(g => g.subjectId)
+      // Cek kelengkapan mata pelajaran wajib yang memang dipelajari di kelas siswa tersebut
+      const classMandatorySubjects = mandatorySubjects.filter(s => isSubjectApplicableToClass(s, studentClass));
+      const classMandatoryIds = new Set(
+        (classMandatorySubjects.length > 0 ? classMandatorySubjects : mandatorySubjects).map(s => s.id)
       );
-      const isComplete = mandatorySubjectIds.size > 0 && completedMandatoryIds.size >= mandatorySubjectIds.size;
+      const completedMandatoryIds = new Set(
+        studentGrades.filter(g => classMandatoryIds.has(g.subjectId)).map(g => g.subjectId)
+      );
+      const isComplete = classMandatoryIds.size > 0 && completedMandatoryIds.size >= classMandatoryIds.size;
 
       const summaryId = `${semesterId}_${student.id}`;
       const existingSummary = academicSummaries.find(s => s.id === summaryId);
@@ -701,9 +706,9 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         semesterId,
         averageScore,
         totalScore,
-        subjectCount: mandatorySubjects.length,
+        subjectCount: classMandatoryIds.size,
         completedCount,
-        mandatoryCount: mandatorySubjects.length,
+        mandatoryCount: classMandatoryIds.size,
         isComplete,
         // Manual input ranks (Directive 1e: Diinput manual oleh Admin, tidak otomatis hitung)
         classRank: existingSummary?.classRank ?? null,
@@ -907,8 +912,43 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const isNew = !students.some(s => s.id === student.id);
     const updated = isNew ? [...students, student] : students.map(s => s.id === student.id ? student : s);
     setStudents(updated);
+    try { localStorage.setItem('sirna_students', JSON.stringify(updated)); } catch {}
     await setDoc(doc(db, 'students', student.id), student);
     await logAuditAction(isNew ? 'CREATE_STUDENT' : 'UPDATE_STUDENT', student.name, `NIS: ${student.nis}, NISN: ${student.nisn}`);
+  };
+
+  const saveStudentsBatch = async (studentsToSave: Student[]) => {
+    if (studentsToSave.length === 0) return;
+    setIsSyncing(true);
+    try {
+      const mergedMap = new Map<string, Student>(students.map(s => [s.id, s]));
+      studentsToSave.forEach(st => mergedMap.set(st.id, st));
+      const mergedList = Array.from(mergedMap.values());
+
+      setStudents(mergedList);
+      try { localStorage.setItem('sirna_students', JSON.stringify(mergedList)); } catch {}
+
+      const chunkSize = 400;
+      for (let i = 0; i < studentsToSave.length; i += chunkSize) {
+        const chunk = studentsToSave.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        chunk.forEach(st => {
+          batch.set(doc(db, 'students', st.id), st);
+        });
+        await batch.commit();
+      }
+
+      setLastSyncTime(new Date());
+      await logAuditAction(
+        'IMPORT_STUDENTS_EXCEL',
+        `Unggah Excel Peserta Didik`,
+        `Berhasil menyimpan/memperbarui ${studentsToSave.length} data peserta didik via Excel`
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'students_batch_import');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const deleteStudent = async (studentId: string) => {
@@ -1312,6 +1352,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         updateSchoolSettings,
         saveStudent,
+        saveStudentsBatch,
         deleteStudent,
         saveClass,
         deleteClass,

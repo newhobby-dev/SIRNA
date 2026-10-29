@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Student, GradePredicate, Subject, ClassRoom, GradeEntry } from '../types';
+import { Student, StudentStatus, GradePredicate, Subject, ClassRoom, GradeEntry } from '../types';
 
 /**
  * Standar Pengurutan Alfabetis Siswa (Bagian 19 Spesifikasi):
@@ -464,6 +464,20 @@ export interface AllSubjectsParseResult {
 }
 
 /**
+ * Mengecek apakah suatu Mata Pelajaran dipelajari pada Kelas/Rombel tertentu secara detail.
+ * - Jika subject.targetClassIds berisi daftar ID kelas spesifik (misal hanya ['cls_xi_d']),
+ *   maka mata pelajaran tersebut HANYA berlaku di kelas yang terdaftar di targetClassIds.
+ * - Jika targetClassIds kosong / tidak diatur, maka mengikuti tingkat kelas (gradeLevel: 'Semua', '10', '11', '12').
+ */
+export function isSubjectApplicableToClass(subject: Subject, cls?: ClassRoom | null): boolean {
+  if (!cls) return true;
+  if (subject.targetClassIds && subject.targetClassIds.length > 0) {
+    return subject.targetClassIds.includes(cls.id);
+  }
+  return !subject.gradeLevel || subject.gradeLevel === 'Semua' || subject.gradeLevel === cls.gradeLevel;
+}
+
+/**
  * Unduh Template / Ekspor Excel Semua Mata Pelajaran (Untuk 1 Kelas atau Seluruh Kelas)
  */
 export function downloadAllSubjectsTemplate(params: {
@@ -492,9 +506,9 @@ export function downloadAllSubjectsTemplate(params: {
       students.filter(s => s.currentClassId === cls.id && s.status === 'aktif')
     );
 
-    // Filter subjects applicable to this class's gradeLevel (or all active subjects if none match)
+    // Filter subjects applicable to this specific class (or all active subjects if none match)
     const classSubjects = subjects.filter(
-      sub => sub.isActive && (!sub.gradeLevel || sub.gradeLevel === 'Semua' || sub.gradeLevel === cls.gradeLevel)
+      sub => sub.isActive && isSubjectApplicableToClass(sub, cls)
     );
     const subjectsToUse = classSubjects.length > 0 ? classSubjects : subjects.filter(s => s.isActive);
 
@@ -703,4 +717,255 @@ export async function parseAllSubjectsExcelFile(
     totalErrors,
   };
 }
+
+/**
+ * Unduh Template Excel untuk Unggah Data Peserta Didik Baru / Massal
+ */
+export function downloadStudentImportTemplate(classes: ClassRoom[], targetClassId?: string) {
+  const wb = XLSX.utils.book_new();
+  const selectedClass = targetClassId && targetClassId !== 'ALL'
+    ? classes.find(c => c.id === targetClassId)
+    : classes[0];
+
+  const defaultClassLabel = selectedClass?.code || selectedClass?.name || 'X-A';
+
+  const sampleRows = [
+    {
+      'No.': 1,
+      'NIS': '260001',
+      'NISN': '0091234501',
+      'Nama Peserta Didik': 'CONTOH SISWA PERTAMA (HAPUS ATAU GANTI BARIS INI)',
+      'L/P': 'L',
+      'Kelas / Rombel': defaultClassLabel,
+      'Angkatan': '2026',
+      'Status': 'AKTIF',
+    },
+    {
+      'No.': 2,
+      'NIS': '260002',
+      'NISN': '0091234502',
+      'Nama Peserta Didik': 'CONTOH SISWA KEDUA (HAPUS ATAU GANTI BARIS INI)',
+      'L/P': 'P',
+      'Kelas / Rombel': defaultClassLabel,
+      'Angkatan': '2026',
+      'Status': 'AKTIF',
+    },
+  ];
+
+  const wsMain = XLSX.utils.json_to_sheet(sampleRows);
+  wsMain['!cols'] = [
+    { wch: 6 },
+    { wch: 14 },
+    { wch: 16 },
+    { wch: 38 },
+    { wch: 8 },
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 12 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsMain, 'Data Peserta Didik');
+
+  const refClasses = classes.map((c, idx) => ({
+    'No.': idx + 1,
+    'Kode Rombel (Isikan di Kolom Kelas / Rombel)': c.code,
+    'Nama Rombel': c.name,
+    'Tingkat': `Kelas ${c.gradeLevel}`,
+  }));
+  const wsRef = XLSX.utils.json_to_sheet(refClasses);
+  wsRef['!cols'] = [{ wch: 6 }, { wch: 38 }, { wch: 22 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsRef, 'Referensi Kode Kelas');
+
+  const suffix = selectedClass && targetClassId !== 'ALL' ? selectedClass.code : 'Semua_Kelas';
+  XLSX.writeFile(wb, `Template_Unggah_Peserta_Didik_${suffix}.xlsx`);
+}
+
+export interface StudentExcelImportRow {
+  rowNumber: number;
+  sheetName: string;
+  nis: string;
+  nisn: string;
+  name: string;
+  gender: 'L' | 'P';
+  classId: string;
+  className: string;
+  admissionYear: string;
+  status: StudentStatus;
+  mode: 'create' | 'update';
+  existingStudentId?: string;
+  isValid: boolean;
+  errors: string[];
+}
+
+/**
+ * Parsing berkas Excel Data Peserta Didik (Mendukung unggah 1 sheet maupun multi-sheet per kelas)
+ */
+export async function parseStudentExcelFile(
+  file: File,
+  classes: ClassRoom[],
+  existingStudents: Student[],
+  fallbackClassId?: string
+): Promise<{
+  rows: StudentExcelImportRow[];
+  totalValid: number;
+  totalCreate: number;
+  totalUpdate: number;
+  totalErrors: number;
+}> {
+  const data = await file.arrayBuffer();
+  const workbook = XLSX.read(data, { type: 'array' });
+
+  const fallbackClass = fallbackClassId && fallbackClassId !== 'ALL'
+    ? classes.find(c => c.id === fallbackClassId)
+    : undefined;
+
+  const findMatchingClass = (rawClassStr: string, sheetName: string): ClassRoom | undefined => {
+    const clean = rawClassStr.trim().toLowerCase();
+    if (clean) {
+      const matched = classes.find(
+        c =>
+          c.code.trim().toLowerCase() === clean ||
+          c.name.trim().toLowerCase() === clean ||
+          `kelas ${c.code.trim().toLowerCase()}` === clean ||
+          c.id.toLowerCase() === clean
+      );
+      if (matched) return matched;
+    }
+
+    const cleanSheet = sheetName.trim().toLowerCase();
+    const matchedBySheet = classes.find(
+      c =>
+        c.code.trim().toLowerCase() === cleanSheet ||
+        c.name.trim().toLowerCase() === cleanSheet
+    );
+    if (matchedBySheet) return matchedBySheet;
+
+    return fallbackClass;
+  };
+
+  const existingByNisn = new Map<string, Student>();
+  const existingByNis = new Map<string, Student>();
+  existingStudents.forEach(st => {
+    if (st.nisn) existingByNisn.set(String(st.nisn).trim(), st);
+    if (st.nis) existingByNis.set(String(st.nis).trim(), st);
+  });
+
+  const seenNisInFile = new Set<string>();
+  const seenNisnInFile = new Set<string>();
+  const parsedRows: StudentExcelImportRow[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    if (sheetName.toLowerCase().includes('referensi')) continue;
+
+    const worksheet = workbook.Sheets[sheetName];
+    const rawJson: Record<string, any>[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+    if (rawJson.length === 0) continue;
+
+    rawJson.forEach((row, index) => {
+      const nis = String(row['NIS'] ?? row['nis'] ?? row['Nis'] ?? row['No. Induk'] ?? '').trim();
+      const nisn = String(row['NISN'] ?? row['nisn'] ?? row['Nisn'] ?? '').trim();
+      const name = String(
+        row['Nama Peserta Didik'] ??
+        row['Nama Siswa'] ??
+        row['Nama Lengkap'] ??
+        row['Nama'] ??
+        row['nama'] ??
+        ''
+      ).trim();
+
+      // Skip empty rows or template placeholder instruction rows if unmodified
+      if (!nis && !nisn && !name) return;
+      if (name.toUpperCase().includes('CONTOH SISWA PERTAMA') || name.toUpperCase().includes('CONTOH SISWA KEDUA')) {
+        return;
+      }
+      if (name.includes('(Belum ada peserta didik di kelas ini)')) {
+        return;
+      }
+
+      const genderRaw = String(
+        row['L/P'] ?? row['Jenis Kelamin'] ?? row['JK'] ?? row['Gender'] ?? row['lp'] ?? 'L'
+      ).trim().toUpperCase();
+      const gender: 'L' | 'P' =
+        genderRaw.startsWith('P') || genderRaw.startsWith('W') || genderRaw === 'PEREMPUAN' ? 'P' : 'L';
+
+      const classRaw = String(
+        row['Kelas / Rombel'] ?? row['Kelas'] ?? row['Rombel'] ?? row['Kode Kelas'] ?? ''
+      ).trim();
+      const matchedClass = findMatchingClass(classRaw, sheetName);
+
+      const admissionYear = String(
+        row['Angkatan'] ?? row['Tahun Masuk / Angkatan'] ?? row['Tahun Masuk'] ?? '2026'
+      ).trim() || '2026';
+
+      const statusRaw = String(row['Status'] ?? row['status'] ?? 'aktif').trim().toLowerCase();
+      let status: StudentStatus = 'aktif';
+      if (statusRaw === 'alumni' || statusRaw === 'lulus') {
+        status = 'alumni';
+      } else if (statusRaw === 'mutasi' || statusRaw === 'pindah') {
+        status = 'mutasi';
+      } else if (statusRaw === 'keluar' || statusRaw === 'nonaktif') {
+        status = 'keluar';
+      }
+
+      const errors: string[] = [];
+
+      if (!name) errors.push('Nama peserta didik wajib diisi.');
+      if (!nis) errors.push('NIS wajib diisi.');
+      if (!nisn) errors.push('NISN wajib diisi.');
+      if (!matchedClass) {
+        errors.push(
+          classRaw
+            ? `Kelas "${classRaw}" tidak ditemukan pada daftar rombel sekolah.`
+            : 'Kelas / Rombel belum diisi.'
+        );
+      }
+
+      if (nis) {
+        if (seenNisInFile.has(nis)) {
+          errors.push(`NIS "${nis}" duplikat di dalam file Excel.`);
+        }
+        seenNisInFile.add(nis);
+      }
+
+      if (nisn) {
+        if (seenNisnInFile.has(nisn)) {
+          errors.push(`NISN "${nisn}" duplikat di dalam file Excel.`);
+        }
+        seenNisnInFile.add(nisn);
+      }
+
+      const existingMatch = (nisn ? existingByNisn.get(nisn) : undefined) || (nis ? existingByNis.get(nis) : undefined);
+
+      parsedRows.push({
+        rowNumber: index + 2,
+        sheetName,
+        nis,
+        nisn,
+        name,
+        gender,
+        classId: matchedClass?.id || '',
+        className: matchedClass?.name || classRaw || '-',
+        admissionYear,
+        status,
+        mode: existingMatch ? 'update' : 'create',
+        existingStudentId: existingMatch?.id,
+        isValid: errors.length === 0,
+        errors,
+      });
+    });
+  }
+
+  const totalValid = parsedRows.filter(r => r.isValid).length;
+  const totalCreate = parsedRows.filter(r => r.isValid && r.mode === 'create').length;
+  const totalUpdate = parsedRows.filter(r => r.isValid && r.mode === 'update').length;
+  const totalErrors = parsedRows.filter(r => !r.isValid).length;
+
+  return {
+    rows: parsedRows,
+    totalValid,
+    totalCreate,
+    totalUpdate,
+    totalErrors,
+  };
+}
+
 

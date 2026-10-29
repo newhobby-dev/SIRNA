@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { FileSpreadsheet, Plus, Trash2, Edit2, X, Filter } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { FileSpreadsheet, Plus, Trash2, X, Filter } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import { TeachingAssignment } from '../../types';
+import { isSubjectApplicableToClass } from '../../lib/utils';
 
 export const AssignmentManagement: React.FC = () => {
   const {
@@ -29,6 +30,18 @@ export const AssignmentManagement: React.FC = () => {
     classId: classes[0]?.id || '',
   });
 
+  const selectedSubjectObj = useMemo(
+    () => subjects.find(s => s.id === formData.subjectId),
+    [subjects, formData.subjectId]
+  );
+
+  // Filter classes that study the selected subject
+  const applicableClassesForSubject = useMemo(() => {
+    if (!selectedSubjectObj) return classes;
+    const matched = classes.filter(c => isSubjectApplicableToClass(selectedSubjectObj, c));
+    return matched.length > 0 ? matched : classes;
+  }, [classes, selectedSubjectObj]);
+
   const filteredAssignments = teachingAssignments.filter(a => {
     if (classFilter !== 'ALL' && a.classId !== classFilter) return false;
     return true;
@@ -36,12 +49,30 @@ export const AssignmentManagement: React.FC = () => {
 
   const handleOpenAdd = () => {
     setEditingAssignment(null);
+    const firstSubj = subjects[0];
+    const validClasses = firstSubj
+      ? classes.filter(c => isSubjectApplicableToClass(firstSubj, c))
+      : classes;
     setFormData({
       teacherId: teachers[0]?.id || '',
-      subjectId: subjects[0]?.id || '',
-      classId: classes[0]?.id || '',
+      subjectId: firstSubj?.id || '',
+      classId: validClasses[0]?.id || classes[0]?.id || '',
     });
     setIsModalOpen(true);
+  };
+
+  const handleSubjectChange = (newSubjectId: string) => {
+    const subj = subjects.find(s => s.id === newSubjectId);
+    const validClasses = subj
+      ? classes.filter(c => isSubjectApplicableToClass(subj, c))
+      : classes;
+    const isCurrentClassStillValid = validClasses.some(c => c.id === formData.classId);
+
+    setFormData({
+      ...formData,
+      subjectId: newSubjectId,
+      classId: isCurrentClassStillValid ? formData.classId : (validClasses[0]?.id || classes[0]?.id || ''),
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -104,7 +135,7 @@ export const AssignmentManagement: React.FC = () => {
 
         <button
           onClick={handleOpenAdd}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-900/30"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-900/30 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>Tambah Penugasan</span>
@@ -203,14 +234,28 @@ export const AssignmentManagement: React.FC = () => {
                 <label className="block font-semibold text-slate-700 mb-1">Mata Pelajaran *</label>
                 <select
                   value={formData.subjectId}
-                  onChange={(e) => setFormData({ ...formData, subjectId: e.target.value })}
+                  onChange={(e) => handleSubjectChange(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
                 >
-                  {subjects.map(s => (
-                    <option key={s.id} value={s.id}>
-                      [{s.code}] {s.name} ({s.category})
-                    </option>
-                  ))}
+                  {subjects.map(s => {
+                    const specificClasses =
+                      s.targetClassIds && s.targetClassIds.length > 0
+                        ? classes
+                            .filter(c => s.targetClassIds?.includes(c.id))
+                            .map(c => c.code)
+                            .join(', ')
+                        : '';
+                    return (
+                      <option key={s.id} value={s.id}>
+                        [{s.code}] {s.name}{' '}
+                        {specificClasses
+                          ? `(Khusus Kelas: ${specificClasses})`
+                          : s.gradeLevel === 'Semua'
+                          ? '(Semua Kelas)'
+                          : `(Kelas ${s.gradeLevel})`}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -221,25 +266,31 @@ export const AssignmentManagement: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, classId: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
                 >
-                  {classes.map(c => (
+                  {applicableClassesForSubject.map(c => (
                     <option key={c.id} value={c.id}>
                       {c.name} (Tingkat {c.gradeLevel})
                     </option>
                   ))}
                 </select>
+                {selectedSubjectObj?.targetClassIds && selectedSubjectObj.targetClassIds.length > 0 && (
+                  <p className="text-[10px] text-indigo-600 font-semibold mt-1">
+                    ℹ️ Mata pelajaran {selectedSubjectObj.name} hanya dipelajari di kelas:{' '}
+                    {applicableClassesForSubject.map(c => c.code).join(', ')}.
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold"
+                  className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold"
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
                 >
                   Simpan Penugasan
                 </button>
@@ -251,3 +302,4 @@ export const AssignmentManagement: React.FC = () => {
     </div>
   );
 };
+
