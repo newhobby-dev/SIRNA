@@ -15,6 +15,10 @@ import {
   RotateCcw,
   Layers,
   Sparkles,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAcademic } from '../../context/AcademicContext';
@@ -29,8 +33,9 @@ import {
   parseAllSubjectsExcelFile,
   AllSubjectsParseResult,
   isSubjectApplicableToClass,
+  sortSubjects,
 } from '../../lib/utils';
-import { GradeEntry, GradeStatus } from '../../types';
+import { GradeEntry, GradeStatus, Subject } from '../../types';
 
 interface SchoolRecapViewProps {
   initialMode?: 'leger' | 'upload';
@@ -51,6 +56,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     currentSemester,
     schoolSettings,
     saveGradeEntries,
+    saveSubjectsOrder,
     isSyncing,
   } = useAcademic();
 
@@ -74,6 +80,10 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
+  // Subject Column Ordering Modal State
+  const [isReorderModalOpen, setIsReorderModalOpen] = useState(false);
+  const [draftSubjectsOrder, setDraftSubjectsOrder] = useState<Subject[]>([]);
+
   useEffect(() => {
     setActiveMode(initialMode);
   }, [initialMode]);
@@ -93,15 +103,70 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     return sortStudentsAlphabetically(list);
   }, [students, selectedClassId, searchQuery]);
 
-  // Displayed subjects based on scope filter
+  // Displayed subjects based on scope filter and configured sortOrder
   const displayedSubjects = useMemo(() => {
-    const allActive = subjects.filter(s => s.isActive);
+    const allActive = sortSubjects(subjects.filter(s => s.isActive));
     if (subjectScope === 'all' || !currentClass) {
       return allActive;
     }
     const filtered = allActive.filter(s => isSubjectApplicableToClass(s, currentClass));
     return filtered.length > 0 ? filtered : allActive;
   }, [subjects, subjectScope, currentClass]);
+
+  const handleOpenReorderModal = () => {
+    setDraftSubjectsOrder(sortSubjects(subjects));
+    setIsReorderModalOpen(true);
+  };
+
+  const handleMoveDraftSubject = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= draftSubjectsOrder.length) return;
+    const copy = [...draftSubjectsOrder];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(targetIdx, 0, moved);
+    setDraftSubjectsOrder(copy);
+  };
+
+  const handleDirectDraftPosition = (index: number, newPosOneBased: number) => {
+    const clampedIdx = Math.max(0, Math.min(draftSubjectsOrder.length - 1, newPosOneBased - 1));
+    if (clampedIdx === index) return;
+    const copy = [...draftSubjectsOrder];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(clampedIdx, 0, moved);
+    setDraftSubjectsOrder(copy);
+  };
+
+  const handlePresetDraftSort = (mode: 'curriculum' | 'code' | 'name') => {
+    const categoryRank: Record<string, number> = {
+      'Kelompok A (Umum)': 1,
+      'Kelompok B (Umum)': 2,
+      'Kelompok C (Peminatan)': 3,
+      'Muatan Lokal': 4,
+    };
+    const sorted = [...draftSubjectsOrder].sort((a, b) => {
+      if (mode === 'curriculum') {
+        const catA = categoryRank[a.category] ?? 99;
+        const catB = categoryRank[b.category] ?? 99;
+        if (catA !== catB) return catA - catB;
+        return a.name.localeCompare(b.name, 'id', { sensitivity: 'base' });
+      }
+      if (mode === 'code') {
+        return a.code.localeCompare(b.code, 'id', { sensitivity: 'base' });
+      }
+      return a.name.localeCompare(b.name, 'id', { sensitivity: 'base' });
+    });
+    setDraftSubjectsOrder(sorted);
+  };
+
+  const handleSaveColumnOrder = async () => {
+    await saveSubjectsOrder(draftSubjectsOrder);
+    setIsReorderModalOpen(false);
+    setStatusMessage({
+      type: 'success',
+      text: 'Urutan kolom mata pelajaran berhasil diperbarui dan diterapkan pada tabel Leger, Cetak Rekap, dan Ekspor Excel!',
+    });
+    setTimeout(() => setStatusMessage(null), 5000);
+  };
 
   // All grades map for the selected semester across the entire school: `${studentId}_${subjectId}` -> score
   const allSemesterGradesMap = useMemo(() => {
@@ -196,7 +261,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
 
   // Export ALL classes and ALL subjects in one comprehensive Excel workbook
   const handleExportAllClassesExcel = () => {
-    const allActiveSubjects = subjects.filter(s => s.isActive);
+    const allActiveSubjects = sortSubjects(subjects.filter(s => s.isActive));
     const sheets: { sheetName: string; data: Record<string, any>[] }[] = [];
 
     // 1. Master combined sheet of all active students grouped by class and sorted A-Z within each class
@@ -238,9 +303,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
       const clsStudents = sortStudentsAlphabetically(
         students.filter(s => s.currentClassId === cls.id && s.status === 'aktif')
       );
-      const clsSubjects = allActiveSubjects.filter(
-        sub => !sub.gradeLevel || sub.gradeLevel === 'Semua' || sub.gradeLevel === cls.gradeLevel
-      );
+      const clsSubjects = allActiveSubjects.filter(sub => isSubjectApplicableToClass(sub, cls));
       const subsToUse = clsSubjects.length > 0 ? clsSubjects : allActiveSubjects;
 
       const clsRows = clsStudents.map((st, idx) => {
@@ -862,7 +925,17 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
               </div>
 
               {isAdmin && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenReorderModal}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition cursor-pointer"
+                    title="Atur urutan kemunculan kolom mata pelajaran pada tabel rekap nilai & Excel"
+                  >
+                    <ArrowUpDown className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Atur Urutan Kolom Mapel</span>
+                  </button>
+
                   {!isEditingTable ? (
                     <button
                       onClick={() => setIsEditingTable(true)}
@@ -1056,6 +1129,158 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
             </div>
           </div>
         </>
+      )}
+
+      {/* MODAL PENGATURAN URUTAN KOLOM MATA PELAJARAN PADA REKAP NILAI */}
+      {isReorderModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <ArrowUpDown className="w-4 h-4 text-indigo-600" />
+                  <span>Atur Urutan Kolom Mata Pelajaran pada Rekap Nilai</span>
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Urutan dari atas ke bawah (Kolom #1, #2, dst.) menentukan urutan kolom dari kiri ke kanan pada Tabel Leger, Cetak Rekap, Template Excel, dan Rapor Siswa.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsReorderModalOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Live Horizontal Column Header Preview */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3">
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                Pratinjau Urutan Kolom Tabel Rekap (Kiri ke Kanan):
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                <span className="px-2 py-1 rounded bg-slate-200 text-slate-600 font-bold text-[10px] shrink-0">
+                  No. | NIS | Nama Siswa
+                </span>
+                {draftSubjectsOrder.map((sub, idx) => (
+                  <span
+                    key={sub.id}
+                    className="px-2 py-1 rounded bg-indigo-600 text-white font-mono font-bold text-[10px] shrink-0 shadow-2xs"
+                    title={sub.name}
+                  >
+                    #{idx + 1} {sub.code}
+                  </span>
+                ))}
+                <span className="px-2 py-1 rounded bg-blue-100 text-blue-800 font-bold text-[10px] shrink-0">
+                  Rata-Rata | Peringkat
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Sort Presets */}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 text-xs">
+              <span className="font-bold text-slate-700 text-[11px]">Urutkan Cepat:</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handlePresetDraftSort('curriculum')}
+                  className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-[11px] cursor-pointer"
+                >
+                  Sesuai Kelompok Kurikulum (A → B → C → Mulok)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePresetDraftSort('code')}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 font-bold text-[11px] cursor-pointer"
+                >
+                  Sesuai Kode Mapel (A–Z)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePresetDraftSort('name')}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 font-bold text-[11px] cursor-pointer"
+                >
+                  Sesuai Nama Mapel (A–Z)
+                </button>
+              </div>
+            </div>
+
+            {/* Reorderable Subject List */}
+            <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+              {draftSubjectsOrder.map((subj, idx) => (
+                <div
+                  key={subj.id}
+                  className="p-2.5 px-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition text-xs"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <select
+                      value={idx + 1}
+                      onChange={e => handleDirectDraftPosition(idx, Number(e.target.value))}
+                      className="px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-900 font-mono font-extrabold text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0"
+                    >
+                      {draftSubjectsOrder.map((_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          Kolom #{i + 1}
+                        </option>
+                      ))}
+                    </select>
+
+                    <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono font-bold text-slate-800 shrink-0">
+                      {subj.code}
+                    </span>
+
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 truncate">{subj.name}</div>
+                      <div className="text-[10px] text-slate-500">{subj.category}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={() => handleMoveDraftSubject(idx, 'up')}
+                      className="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 flex items-center gap-1 font-bold text-[11px] cursor-pointer"
+                      title="Geser ke kiri / atas"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Geser Naik (Kiri)</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === draftSubjectsOrder.length - 1}
+                      onClick={() => handleMoveDraftSubject(idx, 'down')}
+                      className="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 flex items-center gap-1 font-bold text-[11px] cursor-pointer"
+                      title="Geser ke kanan / bawah"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Geser Turun (Kanan)</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 mt-3 border-t border-slate-100 text-xs">
+              <button
+                type="button"
+                onClick={() => setIsReorderModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isSyncing}
+                onClick={handleSaveColumnOrder}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-md shadow-indigo-900/20 cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                <span>{isSyncing ? 'Menyimpan...' : 'Simpan Urutan Kolom Rekap'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

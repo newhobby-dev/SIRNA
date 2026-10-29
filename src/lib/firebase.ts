@@ -1,13 +1,53 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, getDocFromServer, Firestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// CRITICAL: Initialize Firestore with the exact firestoreDatabaseId from configuration
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// CRITICAL: Initialize Firestore with the exact firestoreDatabaseId and ignoreUndefinedProperties: true
+function createFirestoreInstance(): Firestore {
+  try {
+    return initializeFirestore(
+      app,
+      { ignoreUndefinedProperties: true },
+      firebaseConfig.firestoreDatabaseId
+    );
+  } catch {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const db = createFirestoreInstance();
+
+/**
+ * Recursively strips `undefined` properties from objects and arrays before writing to Firestore
+ * so `WriteBatch.set()` / `setDoc()` never fails with `Unsupported field value: undefined`.
+ */
+export function sanitizeFirestoreData<T>(value: T): T {
+  if (value === undefined) {
+    return null as unknown as T;
+  }
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .filter(item => item !== undefined)
+      .map(item => sanitizeFirestoreData(item)) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  Object.entries(value as Record<string, any>).forEach(([k, v]) => {
+    if (v !== undefined) {
+      cleaned[k] = sanitizeFirestoreData(v);
+    }
+  });
+  return cleaned as T;
+}
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);

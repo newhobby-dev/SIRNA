@@ -187,16 +187,16 @@ export const defaultClasses: ClassRoom[] = [
 ];
 
 export const defaultSubjects: Subject[] = [
-  { id: 'subj_pabp', code: 'PABP', name: 'Pendidikan Agama dan Budi Pekerti', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_pp', code: 'PP', name: 'Pendidikan Pancasila', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_bind', code: 'BIND', name: 'Bahasa Indonesia', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_mat', code: 'MAT', name: 'Matematika', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_bing', code: 'BING', name: 'Bahasa Inggris', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_sej', code: 'SEJ', name: 'Sejarah', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_fis', code: 'FIS', name: 'Fisika', category: 'Kelompok C (Peminatan)', gradeLevel: '10', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_kim', code: 'KIM', name: 'Kimia', category: 'Kelompok C (Peminatan)', gradeLevel: '10', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_bio', code: 'BIO', name: 'Biologi', category: 'Kelompok C (Peminatan)', gradeLevel: '10', isMandatory: true, weight: 1, isActive: true },
-  { id: 'subj_inf', code: 'INF', name: 'Informatika', category: 'Kelompok B (Umum)', gradeLevel: 'Semua', isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_pabp', code: 'PABP', name: 'Pendidikan Agama dan Budi Pekerti', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', sortOrder: 1, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_pp', code: 'PP', name: 'Pendidikan Pancasila', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', sortOrder: 2, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_bind', code: 'BIND', name: 'Bahasa Indonesia', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', sortOrder: 3, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_mat', code: 'MAT', name: 'Matematika', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', sortOrder: 4, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_bing', code: 'BING', name: 'Bahasa Inggris', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', sortOrder: 5, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_sej', code: 'SEJ', name: 'Sejarah', category: 'Kelompok A (Umum)', gradeLevel: 'Semua', sortOrder: 6, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_inf', code: 'INF', name: 'Informatika', category: 'Kelompok B (Umum)', gradeLevel: 'Semua', sortOrder: 7, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_fis', code: 'FIS', name: 'Fisika', category: 'Kelompok C (Peminatan)', gradeLevel: '10', sortOrder: 8, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_kim', code: 'KIM', name: 'Kimia', category: 'Kelompok C (Peminatan)', gradeLevel: '10', sortOrder: 9, isMandatory: true, weight: 1, isActive: true },
+  { id: 'subj_bio', code: 'BIO', name: 'Biologi', category: 'Kelompok C (Peminatan)', gradeLevel: '10', sortOrder: 10, isMandatory: true, weight: 1, isActive: true },
 ];
 
 export const defaultTeachingAssignments: TeachingAssignment[] = [

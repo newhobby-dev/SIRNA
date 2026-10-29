@@ -11,7 +11,7 @@ import {
   query,
   where,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, testFirestoreConnection } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, testFirestoreConnection, sanitizeFirestoreData } from '../lib/firebase';
 import {
   SchoolSetting,
   AcademicYear,
@@ -38,7 +38,7 @@ import {
   initialGradeEntries,
   defaultSummaries,
 } from '../lib/seedData';
-import { assignCompetitionRanks, sortStudentsAlphabetically, isSubjectApplicableToClass } from '../lib/utils';
+import { assignCompetitionRanks, sortStudentsAlphabetically, isSubjectApplicableToClass, sortSubjects } from '../lib/utils';
 import { useAuth } from './AuthContext';
 
 interface AcademicContextType {
@@ -84,6 +84,7 @@ interface AcademicContextType {
   saveClass: (cls: ClassRoom) => Promise<void>;
   deleteClass: (classId: string) => Promise<void>;
   saveSubject: (subj: Subject) => Promise<void>;
+  saveSubjectsOrder: (orderedSubjects: Subject[]) => Promise<void>;
   deleteSubject: (subjectId: string) => Promise<void>;
   saveTeacher: (teacher: Teacher) => Promise<void>;
   deleteTeacher: (teacherId: string) => Promise<void>;
@@ -146,9 +147,9 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [subjects, setSubjects] = useState<Subject[]>(() => {
     try {
       const saved = localStorage.getItem('sirna_subjects');
-      if (saved) return JSON.parse(saved);
+      if (saved) return sortSubjects(JSON.parse(saved));
     } catch {}
-    return defaultSubjects;
+    return sortSubjects(defaultSubjects);
   });
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
     try {
@@ -245,7 +246,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               try { localStorage.setItem('sirna_classes', JSON.stringify(items)); } catch {}
             }
             if (subjsSnap && !subjsSnap.empty) {
-              const items = subjsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Subject));
+              const items = sortSubjects(subjsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Subject)));
               setSubjects(items);
               try { localStorage.setItem('sirna_subjects', JSON.stringify(items)); } catch {}
             }
@@ -330,8 +331,9 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const unsubSubjects = onSnapshot(collection(db, 'subjects'), (snap) => {
       if (!snap.empty) {
-        const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Subject));
+        const items = sortSubjects(snap.docs.map(d => ({ ...d.data(), id: d.id } as Subject)));
         setSubjects(items);
+        try { localStorage.setItem('sirna_subjects', JSON.stringify(items)); } catch {}
         setNetworkOnline(true);
       }
     }, handleSnapshotErr('subjects'));
@@ -517,7 +519,22 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           ];
         }
 
-        const fullEntry: GradeEntry = {
+        const submittedTimestamp =
+          status === 'submitted' || status === 'final' || status === 'published'
+            ? existing?.submittedAt || now
+            : existing?.submittedAt;
+
+        const finalizedTimestamp =
+          status === 'final' || status === 'published'
+            ? existing?.finalizedAt || now
+            : existing?.finalizedAt;
+
+        const publishedTimestamp =
+          status === 'published'
+            ? existing?.publishedAt || now
+            : existing?.publishedAt;
+
+        const fullEntry: GradeEntry = sanitizeFirestoreData({
           id: entryId,
           studentId: entry.studentId,
           studentNis: entry.studentNis || existing?.studentNis || '',
@@ -537,10 +554,10 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           correctionHistory,
           createdAt: existing?.createdAt || now,
           updatedAt: now,
-          submittedAt: status === 'submitted' ? now : existing?.submittedAt,
-          finalizedAt: status === 'final' || status === 'published' ? now : existing?.finalizedAt,
-          publishedAt: status === 'published' ? now : existing?.publishedAt,
-        };
+          ...(submittedTimestamp ? { submittedAt: submittedTimestamp } : {}),
+          ...(finalizedTimestamp ? { finalizedAt: finalizedTimestamp } : {}),
+          ...(publishedTimestamp ? { publishedAt: publishedTimestamp } : {}),
+        });
 
         updatedEntries.push(fullEntry);
       }
@@ -551,7 +568,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const chunk = updatedEntries.slice(i, i + chunkSize);
         const chunkBatch = writeBatch(db);
         chunk.forEach(item => {
-          chunkBatch.set(doc(db, 'gradeEntries', item.id), item);
+          chunkBatch.set(doc(db, 'gradeEntries', item.id), sanitizeFirestoreData(item));
         });
         await chunkBatch.commit();
       }
@@ -600,15 +617,21 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const newStatus: GradeStatus = approve ? 'final' : 'revision_requested';
       const now = new Date().toISOString();
 
-      const updated = targetGrades.map(g => ({
-        ...g,
-        status: newStatus,
-        revisionNote: approve ? '' : revisionNote,
-        updatedAt: now,
-        finalizedAt: approve ? now : undefined,
-      }));
+      const updated = targetGrades.map(g => {
+        const nextEntry: GradeEntry = {
+          ...g,
+          status: newStatus,
+          revisionNote: approve ? '' : revisionNote,
+          updatedAt: now,
+          ...(approve ? { finalizedAt: now } : {}),
+        };
+        if (!approve) {
+          delete nextEntry.finalizedAt;
+        }
+        return sanitizeFirestoreData(nextEntry);
+      });
 
-      updated.forEach(g => batch.set(doc(db, 'gradeEntries', g.id), g));
+      updated.forEach(g => batch.set(doc(db, 'gradeEntries', g.id), sanitizeFirestoreData(g)));
       await batch.commit();
 
       const mergedMap = new Map(gradeEntries.map(i => [i.id, i]));
@@ -976,14 +999,69 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // CRUD for Subject
   const saveSubject = async (subj: Subject) => {
     const isNew = !subjects.some(s => s.id === subj.id);
-    const updated = isNew ? [...subjects, subj] : subjects.map(s => s.id === subj.id ? subj : s);
+    const cleanSubj = sanitizeFirestoreData({
+      ...subj,
+      sortOrder:
+        typeof subj.sortOrder === 'number' && !isNaN(subj.sortOrder)
+          ? subj.sortOrder
+          : isNew
+          ? subjects.length + 1
+          : subj.sortOrder,
+    });
+    const updated = sortSubjects(
+      isNew ? [...subjects, cleanSubj] : subjects.map(s => (s.id === cleanSubj.id ? cleanSubj : s))
+    );
     setSubjects(updated);
-    await setDoc(doc(db, 'subjects', subj.id), subj);
-    await logAuditAction(isNew ? 'CREATE_SUBJECT' : 'UPDATE_SUBJECT', subj.name, `Kode: ${subj.code}`);
+    try {
+      localStorage.setItem('sirna_subjects', JSON.stringify(updated));
+    } catch {}
+    await setDoc(doc(db, 'subjects', cleanSubj.id), cleanSubj);
+    await logAuditAction(isNew ? 'CREATE_SUBJECT' : 'UPDATE_SUBJECT', cleanSubj.name, `Kode: ${cleanSubj.code}, Urutan: #${cleanSubj.sortOrder ?? '-'}`);
+  };
+
+  const saveSubjectsOrder = async (orderedSubjects: Subject[]) => {
+    if (orderedSubjects.length === 0) return;
+    setIsSyncing(true);
+    try {
+      const normalized = orderedSubjects.map((s, idx) =>
+        sanitizeFirestoreData({
+          ...s,
+          sortOrder: idx + 1,
+        })
+      );
+      const sorted = sortSubjects(normalized);
+      setSubjects(sorted);
+      try {
+        localStorage.setItem('sirna_subjects', JSON.stringify(sorted));
+      } catch {}
+
+      const batch = writeBatch(db);
+      sorted.forEach(subj => {
+        batch.set(doc(db, 'subjects', subj.id), sanitizeFirestoreData(subj));
+      });
+      await batch.commit();
+
+      setLastSyncTime(new Date());
+      await logAuditAction(
+        'REORDER_SUBJECTS',
+        'Urutan Kolom Mata Pelajaran',
+        `Berhasil memperbarui urutan kolom ${sorted.length} mata pelajaran pada rekap nilai`
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'subjects_reorder');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const deleteSubject = async (subjectId: string) => {
-    setSubjects(prev => prev.filter(s => s.id !== subjectId));
+    setSubjects(prev => {
+      const next = prev.filter(s => s.id !== subjectId);
+      try {
+        localStorage.setItem('sirna_subjects', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     await deleteDoc(doc(db, 'subjects', subjectId));
     await logAuditAction('DELETE_SUBJECT', subjectId, 'Penghapusan mata pelajaran');
   };
@@ -1357,6 +1435,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         saveClass,
         deleteClass,
         saveSubject,
+        saveSubjectsOrder,
         deleteSubject,
         saveTeacher,
         deleteTeacher,

@@ -27,6 +27,7 @@ import {
   formatIndonesianDate,
   getPredicateForScore,
   exportExcelWorkbook,
+  sortSubjects,
 } from '../../lib/utils';
 import { Student, GradeEntry, AcademicSummary, Semester } from '../../types';
 
@@ -161,16 +162,26 @@ export const StudentPortal: React.FC = () => {
     return semType === '1' ? 1 : 2;
   };
 
-  // Published grades for this student and active semester
+  // Published grades for this student and active semester, sorted by subject sortOrder
   const studentGrades = useMemo(() => {
     if (!verifiedStudent) return [];
-    return gradeEntries.filter(
-      g =>
-        g.studentId === verifiedStudent.id &&
-        g.semesterId === activeSemId &&
-        g.status === 'published'
-    );
-  }, [verifiedStudent, activeSemId, gradeEntries]);
+    const sortedSubjOrder = new Map<string, number>();
+    sortSubjects(subjects).forEach((s, idx) => sortedSubjOrder.set(s.id, idx));
+
+    return gradeEntries
+      .filter(
+        g =>
+          g.studentId === verifiedStudent.id &&
+          g.semesterId === activeSemId &&
+          g.status === 'published'
+      )
+      .sort((a, b) => {
+        const ordA = sortedSubjOrder.get(a.subjectId) ?? 9999;
+        const ordB = sortedSubjOrder.get(b.subjectId) ?? 9999;
+        if (ordA !== ordB) return ordA - ordB;
+        return a.subjectName.localeCompare(b.subjectName, 'id');
+      });
+  }, [verifiedStudent, activeSemId, gradeEntries, subjects]);
 
   // Student summary for this semester (including manual ranks input by Admin)
   const studentSummary = useMemo(() => {
@@ -220,7 +231,7 @@ export const StudentPortal: React.FC = () => {
       }
     >();
 
-    subjects.forEach(subj => {
+    sortSubjects(subjects).forEach(subj => {
       subjectMap.set(subj.id, {
         id: subj.id,
         code: subj.code,

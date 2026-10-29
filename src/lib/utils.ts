@@ -464,6 +464,36 @@ export interface AllSubjectsParseResult {
 }
 
 /**
+ * Mengurutkan daftar Mata Pelajaran sesuai pengaturan urutan kolom (`sortOrder`).
+ * Jika `sortOrder` belum diatur atau bernilai sama, diurutkan berdasarkan Kelompok Kurikulum (A -> B -> C -> Mulok) lalu Nama Mapel.
+ */
+export function sortSubjects(subjects: Subject[]): Subject[] {
+  const categoryRank: Record<string, number> = {
+    'Kelompok A (Umum)': 1,
+    'Kelompok B (Umum)': 2,
+    'Kelompok C (Peminatan)': 3,
+    'Muatan Lokal': 4,
+  };
+
+  return [...subjects].sort((a, b) => {
+    const orderA = typeof a.sortOrder === 'number' && !isNaN(a.sortOrder) ? a.sortOrder : 9999;
+    const orderB = typeof b.sortOrder === 'number' && !isNaN(b.sortOrder) ? b.sortOrder : 9999;
+
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+
+    const catA = categoryRank[a.category] ?? 99;
+    const catB = categoryRank[b.category] ?? 99;
+    if (catA !== catB) {
+      return catA - catB;
+    }
+
+    return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'id', { sensitivity: 'base' });
+  });
+}
+
+/**
  * Mengecek apakah suatu Mata Pelajaran dipelajari pada Kelas/Rombel tertentu secara detail.
  * - Jika subject.targetClassIds berisi daftar ID kelas spesifik (misal hanya ['cls_xi_d']),
  *   maka mata pelajaran tersebut HANYA berlaku di kelas yang terdaftar di targetClassIds.
@@ -499,6 +529,7 @@ export function downloadAllSubjectsTemplate(params: {
     fileNamePrefix = 'Template_Nilai_Semua_Mapel',
   } = params;
 
+  const sortedAllSubjects = sortSubjects(subjects);
   const wb = XLSX.utils.book_new();
 
   classes.forEach(cls => {
@@ -507,10 +538,10 @@ export function downloadAllSubjectsTemplate(params: {
     );
 
     // Filter subjects applicable to this specific class (or all active subjects if none match)
-    const classSubjects = subjects.filter(
+    const classSubjects = sortedAllSubjects.filter(
       sub => sub.isActive && isSubjectApplicableToClass(sub, cls)
     );
-    const subjectsToUse = classSubjects.length > 0 ? classSubjects : subjects.filter(s => s.isActive);
+    const subjectsToUse = classSubjects.length > 0 ? classSubjects : sortedAllSubjects.filter(s => s.isActive);
 
     const sheetData = classStudents.map((st, idx) => {
       const row: Record<string, any> = {
@@ -706,7 +737,7 @@ export async function parseAllSubjectsExcelFile(
     });
   }
 
-  const detectedSubjects = activeSubjects.filter(s => detectedSubjectIds.has(s.id));
+  const detectedSubjects = sortSubjects(activeSubjects.filter(s => detectedSubjectIds.has(s.id)));
   const totalStudentsMatched = rows.filter(r => r.matchedStudent && Object.keys(r.scoresBySubjectId).length > 0).length;
 
   return {
