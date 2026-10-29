@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -19,8 +19,9 @@ import {
   UserMinus,
   Sparkles,
   FileText,
-  HelpCircle,
   Cloud,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -68,6 +69,14 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen, onClose }) => {
   const { role } = useAuth();
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (groupKey: string) => {
+    setOpenGroups(prev => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
+  };
 
   const handleSelect = (tab: ActiveTab) => {
     setActiveTab(tab);
@@ -76,11 +85,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
     }
   };
 
+  const isTabActive = (tab: ActiveTab) => {
+    if (tab === 'admin_school_recap' && activeTab === 'admin_upload_export_grades') {
+      return true;
+    }
+    return activeTab === tab;
+  };
+
   const navItemClass = (tab: ActiveTab) =>
-    `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition ${
-      activeTab === tab
+    `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition cursor-pointer ${
+      isTabActive(tab)
         ? 'bg-blue-600 text-white font-semibold shadow-sm shadow-blue-900/30'
         : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+    }`;
+
+  const groupHeaderClass = (groupKey: string, hasActiveChild: boolean) =>
+    `w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer select-none ${
+      openGroups[groupKey]
+        ? 'bg-slate-800/90 text-white border border-slate-700/70'
+        : hasActiveChild
+        ? 'bg-slate-800/50 text-blue-300 border border-blue-500/30 hover:bg-slate-800/80'
+        : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
     }`;
 
   return (
@@ -100,169 +125,285 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
         }`}
       >
         {/* Navigation Content */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2">
           {/* Admin Navigation */}
           {role === 'admin' && (
             <>
+              {/* 1. Ringkasan & Analisis */}
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Ringkasan & Analisis
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('admin_dashboard')} className={navItemClass('admin_dashboard')}>
-                    <LayoutDashboard className="w-4 h-4 text-blue-400" />
-                    <span>Dashboard Utama</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_analytics')} className={navItemClass('admin_analytics')}>
-                    <BarChart3 className="w-4 h-4 text-sky-400" />
-                    <span>Analitik Akademik</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_completeness')} className={navItemClass('admin_completeness')}>
-                    <ClipboardList className="w-4 h-4 text-amber-400" />
-                    <span>Kelengkapan Nilai</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('admin_summary')}
+                  className={groupHeaderClass(
+                    'admin_summary',
+                    ['admin_dashboard', 'admin_analytics', 'admin_completeness'].includes(activeTab)
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>Ringkasan & Analisis</span>
+                  </span>
+                  {openGroups['admin_summary'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['admin_summary'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('admin_dashboard')} className={navItemClass('admin_dashboard')}>
+                      <LayoutDashboard className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>Dashboard Utama</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_analytics')} className={navItemClass('admin_analytics')}>
+                      <BarChart3 className="w-4 h-4 text-sky-400 shrink-0" />
+                      <span>Analitik Akademik</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_completeness')} className={navItemClass('admin_completeness')}>
+                      <ClipboardList className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Kelengkapan Nilai</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
+              {/* 2. Data Master */}
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Data Master
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('admin_teachers')} className={navItemClass('admin_teachers')}>
-                    <UserCheck className="w-4 h-4 text-teal-400" />
-                    <span>Data Guru</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_subjects')} className={navItemClass('admin_subjects')}>
-                    <BookOpen className="w-4 h-4 text-cyan-400" />
-                    <span>Data Mata Pelajaran</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_assignments')} className={navItemClass('admin_assignments')}>
-                    <FileSpreadsheet className="w-4 h-4 text-indigo-400" />
-                    <span>Penugasan Mengajar</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_periods')} className={navItemClass('admin_periods')}>
-                    <CalendarDays className="w-4 h-4 text-rose-400" />
-                    <span>Tahun & Semester</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_classes')} className={navItemClass('admin_classes')}>
-                    <School className="w-4 h-4 text-purple-400" />
-                    <span>Data Kelas / Rombel</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_students')} className={navItemClass('admin_students')}>
-                    <Users className="w-4 h-4 text-emerald-400" />
-                    <span>Data Peserta Didik</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('admin_master')}
+                  className={groupHeaderClass(
+                    'admin_master',
+                    [
+                      'admin_teachers',
+                      'admin_subjects',
+                      'admin_assignments',
+                      'admin_periods',
+                      'admin_classes',
+                      'admin_students',
+                    ].includes(activeTab)
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>Data Master</span>
+                  </span>
+                  {openGroups['admin_master'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['admin_master'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('admin_teachers')} className={navItemClass('admin_teachers')}>
+                      <UserCheck className="w-4 h-4 text-teal-400 shrink-0" />
+                      <span>Data Guru</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_subjects')} className={navItemClass('admin_subjects')}>
+                      <BookOpen className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span>Data Mata Pelajaran</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_assignments')} className={navItemClass('admin_assignments')}>
+                      <FileSpreadsheet className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span>Penugasan Mengajar</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_periods')} className={navItemClass('admin_periods')}>
+                      <CalendarDays className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>Tahun & Semester</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_classes')} className={navItemClass('admin_classes')}>
+                      <School className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Data Kelas / Rombel</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_students')} className={navItemClass('admin_students')}>
+                      <Users className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Data Peserta Didik</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
+              {/* 3. Rekap & Peringkat */}
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Verifikasi & Publikasi
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('admin_verification')} className={navItemClass('admin_verification')}>
-                    <CheckCircle2 className="w-4 h-4 text-green-400" />
-                    <span>Verifikasi & Finalisasi</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_publish')} className={navItemClass('admin_publish')}>
-                    <Share2 className="w-4 h-4 text-pink-400" />
-                    <span>Publikasi Nilai Siswa</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('admin_recap')}
+                  className={groupHeaderClass(
+                    'admin_recap',
+                    ['admin_school_recap', 'admin_upload_export_grades', 'admin_rankings'].includes(activeTab)
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>Rekap & Peringkat</span>
+                  </span>
+                  {openGroups['admin_recap'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['admin_recap'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('admin_school_recap')} className={navItemClass('admin_school_recap')}>
+                      <FileText className="w-4 h-4 text-yellow-400 shrink-0" />
+                      <span>Rekap, Unggah & Ekspor Nilai</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_rankings')} className={navItemClass('admin_rankings')}>
+                      <Award className="w-4 h-4 text-amber-300 shrink-0" />
+                      <span>Peringkat Kelas & Paralel</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
+              {/* 4. Verifikasi & Publikasi */}
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Rekap & Peringkat
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('admin_school_recap')} className={navItemClass('admin_school_recap')}>
-                    <FileText className="w-4 h-4 text-yellow-400" />
-                    <span>Rekap & Ekspor Semua Mapel</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_upload_export_grades')} className={navItemClass('admin_upload_export_grades')}>
-                    <Upload className="w-4 h-4 text-purple-400" />
-                    <span>Unggah Nilai Semua Mapel</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_rankings')} className={navItemClass('admin_rankings')}>
-                    <Award className="w-4 h-4 text-amber-300" />
-                    <span>Peringkat Kelas & Paralel</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('admin_verify')}
+                  className={groupHeaderClass(
+                    'admin_verify',
+                    ['admin_verification', 'admin_publish'].includes(activeTab)
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>Verifikasi & Publikasi</span>
+                  </span>
+                  {openGroups['admin_verify'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['admin_verify'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('admin_verification')} className={navItemClass('admin_verification')}>
+                      <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+                      <span>Verifikasi & Finalisasi</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_publish')} className={navItemClass('admin_publish')}>
+                      <Share2 className="w-4 h-4 text-pink-400 shrink-0" />
+                      <span>Publikasi Nilai Siswa</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
+              {/* 5. Sistem & Keamanan */}
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Sistem & Keamanan
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('admin_users')} className={navItemClass('admin_users')}>
-                    <Users className="w-4 h-4 text-indigo-400" />
-                    <span>Manajemen Akun</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_settings')} className={navItemClass('admin_settings')}>
-                    <Settings className="w-4 h-4 text-slate-400" />
-                    <span>Pengaturan Sekolah & Kop</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_cloud')} className={navItemClass('admin_cloud')}>
-                    <Cloud className="w-4 h-4 text-sky-400" />
-                    <span>Koneksi Cloud</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_backup')} className={navItemClass('admin_backup')}>
-                    <Database className="w-4 h-4 text-blue-300" />
-                    <span>Backup & Restore</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_audit')} className={navItemClass('admin_audit')}>
-                    <ShieldAlert className="w-4 h-4 text-red-400" />
-                    <span>Audit Aktivitas</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('admin_system')}
+                  className={groupHeaderClass(
+                    'admin_system',
+                    ['admin_users', 'admin_settings', 'admin_cloud', 'admin_backup', 'admin_audit'].includes(activeTab)
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>Sistem & Keamanan</span>
+                  </span>
+                  {openGroups['admin_system'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['admin_system'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('admin_users')} className={navItemClass('admin_users')}>
+                      <Users className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span>Manajemen Akun</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_settings')} className={navItemClass('admin_settings')}>
+                      <Settings className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span>Pengaturan Sekolah & Kop</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_cloud')} className={navItemClass('admin_cloud')}>
+                      <Cloud className="w-4 h-4 text-sky-400 shrink-0" />
+                      <span>Koneksi Cloud</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_backup')} className={navItemClass('admin_backup')}>
+                      <Database className="w-4 h-4 text-blue-300 shrink-0" />
+                      <span>Backup & Restore</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_audit')} className={navItemClass('admin_audit')}>
+                      <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>Audit Aktivitas</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
 
-          {/* Guru BK (Bimbingan Konseling) Navigation - Directive 2 */}
+          {/* Guru BK (Bimbingan Konseling) Navigation */}
           {role === 'bk' && (
             <>
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Layanan BK & Konseling
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('homeroom_dashboard')} className={navItemClass('homeroom_dashboard')}>
-                    <LayoutDashboard className="w-4 h-4 text-amber-400" />
-                    <span>Dashboard Konseling</span>
-                  </button>
-                  <button onClick={() => handleSelect('homeroom_monitoring')} className={navItemClass('homeroom_monitoring')}>
-                    <UserMinus className="w-4 h-4 text-rose-400" />
-                    <span>Pendampingan Siswa</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('bk_counseling')}
+                  className={groupHeaderClass(
+                    'bk_counseling',
+                    ['homeroom_dashboard', 'homeroom_monitoring'].includes(activeTab)
+                  )}
+                >
+                  <span>Layanan BK & Konseling</span>
+                  {openGroups['bk_counseling'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['bk_counseling'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('homeroom_dashboard')} className={navItemClass('homeroom_dashboard')}>
+                      <LayoutDashboard className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Dashboard Konseling</span>
+                    </button>
+                    <button onClick={() => handleSelect('homeroom_monitoring')} className={navItemClass('homeroom_monitoring')}>
+                      <UserMinus className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>Pendampingan Siswa</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Rekap & Pemantauan Akademik
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('homeroom_leger')} className={navItemClass('homeroom_leger')}>
-                    <FileSpreadsheet className="w-4 h-4 text-blue-400" />
-                    <span>Buku Leger Nilai</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_rankings')} className={navItemClass('admin_rankings')}>
-                    <Award className="w-4 h-4 text-yellow-300" />
-                    <span>Peringkat Nilai Siswa</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_analytics')} className={navItemClass('admin_analytics')}>
-                    <BarChart3 className="w-4 h-4 text-sky-400" />
-                    <span>Analisis & Perkembangan</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_completeness')} className={navItemClass('admin_completeness')}>
-                    <ClipboardList className="w-4 h-4 text-teal-400" />
-                    <span>Status Kelengkapan Nilai</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('bk_recap')}
+                  className={groupHeaderClass(
+                    'bk_recap',
+                    ['homeroom_leger', 'admin_rankings', 'admin_analytics', 'admin_completeness'].includes(activeTab)
+                  )}
+                >
+                  <span>Rekap & Pemantauan Akademik</span>
+                  {openGroups['bk_recap'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['bk_recap'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('homeroom_leger')} className={navItemClass('homeroom_leger')}>
+                      <FileSpreadsheet className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>Buku Leger Nilai</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_rankings')} className={navItemClass('admin_rankings')}>
+                      <Award className="w-4 h-4 text-yellow-300 shrink-0" />
+                      <span>Peringkat Nilai Siswa</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_analytics')} className={navItemClass('admin_analytics')}>
+                      <BarChart3 className="w-4 h-4 text-sky-400 shrink-0" />
+                      <span>Analisis & Perkembangan</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_completeness')} className={navItemClass('admin_completeness')}>
+                      <ClipboardList className="w-4 h-4 text-teal-400 shrink-0" />
+                      <span>Status Kelengkapan Nilai</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -271,69 +412,118 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
           {role === 'teacher' && (
             <>
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Menu Utama Guru
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('teacher_dashboard')} className={navItemClass('teacher_dashboard')}>
-                    <LayoutDashboard className="w-4 h-4 text-emerald-400" />
-                    <span>Dashboard Guru</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('teacher_main')}
+                  className={groupHeaderClass('teacher_main', activeTab === 'teacher_dashboard')}
+                >
+                  <span>Menu Utama Guru</span>
+                  {openGroups['teacher_main'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['teacher_main'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('teacher_dashboard')} className={navItemClass('teacher_dashboard')}>
+                      <LayoutDashboard className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Dashboard Guru</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Penginputan Nilai
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('teacher_input_manual')} className={navItemClass('teacher_input_manual')}>
-                    <FileSpreadsheet className="w-4 h-4 text-blue-400" />
-                    <span>Input Nilai Manual</span>
-                  </button>
-                  <button onClick={() => handleSelect('teacher_input_excel')} className={navItemClass('teacher_input_excel')}>
-                    <Upload className="w-4 h-4 text-purple-400" />
-                    <span>Unggah Excel (.xlsx)</span>
-                  </button>
-                  <button onClick={() => handleSelect('teacher_completeness')} className={navItemClass('teacher_completeness')}>
-                    <ClipboardList className="w-4 h-4 text-amber-400" />
-                    <span>Status Kelengkapan</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('teacher_input')}
+                  className={groupHeaderClass(
+                    'teacher_input',
+                    ['teacher_input_manual', 'teacher_input_excel', 'teacher_completeness'].includes(activeTab)
+                  )}
+                >
+                  <span>Penginputan Nilai</span>
+                  {openGroups['teacher_input'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['teacher_input'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('teacher_input_manual')} className={navItemClass('teacher_input_manual')}>
+                      <FileSpreadsheet className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>Input Nilai Manual</span>
+                    </button>
+                    <button onClick={() => handleSelect('teacher_input_excel')} className={navItemClass('teacher_input_excel')}>
+                      <Upload className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Unggah Excel (.xlsx)</span>
+                    </button>
+                    <button onClick={() => handleSelect('teacher_completeness')} className={navItemClass('teacher_completeness')}>
+                      <ClipboardList className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Status Kelengkapan</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Laporan & Rekap
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('teacher_recap')} className={navItemClass('teacher_recap')}>
-                    <FileText className="w-4 h-4 text-cyan-400" />
-                    <span>Rekap & Cetak Nilai</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('teacher_report')}
+                  className={groupHeaderClass('teacher_report', activeTab === 'teacher_recap')}
+                >
+                  <span>Laporan & Rekap</span>
+                  {openGroups['teacher_report'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['teacher_report'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('teacher_recap')} className={navItemClass('teacher_recap')}>
+                      <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span>Rekap & Cetak Nilai</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
-
 
           {/* Siswa Navigation */}
           {role === 'student' && (
             <>
               <div>
-                <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Portal Siswa
-                </p>
-                <div className="space-y-1">
-                  <button onClick={() => handleSelect('student_portal')} className={navItemClass('student_portal')}>
-                    <LayoutDashboard className="w-4 h-4 text-sky-400" />
-                    <span>Nilai Semester Ini</span>
-                  </button>
-                  <button onClick={() => handleSelect('student_history')} className={navItemClass('student_history')}>
-                    <CalendarDays className="w-4 h-4 text-indigo-400" />
-                    <span>Riwayat Nilai Lampau</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup('student_menu')}
+                  className={groupHeaderClass(
+                    'student_menu',
+                    ['student_portal', 'student_history'].includes(activeTab)
+                  )}
+                >
+                  <span>Portal Siswa</span>
+                  {openGroups['student_menu'] ? (
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </button>
+                {openGroups['student_menu'] && (
+                  <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
+                    <button onClick={() => handleSelect('student_portal')} className={navItemClass('student_portal')}>
+                      <LayoutDashboard className="w-4 h-4 text-sky-400 shrink-0" />
+                      <span>Nilai Semester Ini</span>
+                    </button>
+                    <button onClick={() => handleSelect('student_history')} className={navItemClass('student_history')}>
+                      <CalendarDays className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span>Riwayat Nilai Lampau</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

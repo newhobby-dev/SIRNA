@@ -609,7 +609,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
                 }`}
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>Unggah Excel Semua Mapel</span>
+                <span>Unggah Semua Mapel (Excel)</span>
               </button>
             </div>
           )}
