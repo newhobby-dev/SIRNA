@@ -129,21 +129,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                   Data Master
                 </p>
                 <div className="space-y-1">
-                  <button onClick={() => handleSelect('admin_students')} className={navItemClass('admin_students')}>
-                    <Users className="w-4 h-4 text-emerald-400" />
-                    <span>Data Peserta Didik</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_classes')} className={navItemClass('admin_classes')}>
-                    <School className="w-4 h-4 text-purple-400" />
-                    <span>Data Kelas / Rombel</span>
+                  <button onClick={() => handleSelect('admin_teachers')} className={navItemClass('admin_teachers')}>
+                    <UserCheck className="w-4 h-4 text-teal-400" />
+                    <span>Data Guru</span>
                   </button>
                   <button onClick={() => handleSelect('admin_subjects')} className={navItemClass('admin_subjects')}>
                     <BookOpen className="w-4 h-4 text-cyan-400" />
                     <span>Data Mata Pelajaran</span>
-                  </button>
-                  <button onClick={() => handleSelect('admin_teachers')} className={navItemClass('admin_teachers')}>
-                    <UserCheck className="w-4 h-4 text-teal-400" />
-                    <span>Data Guru</span>
                   </button>
                   <button onClick={() => handleSelect('admin_assignments')} className={navItemClass('admin_assignments')}>
                     <FileSpreadsheet className="w-4 h-4 text-indigo-400" />
@@ -152,6 +144,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                   <button onClick={() => handleSelect('admin_periods')} className={navItemClass('admin_periods')}>
                     <CalendarDays className="w-4 h-4 text-rose-400" />
                     <span>Tahun & Semester</span>
+                  </button>
+                  <button onClick={() => handleSelect('admin_classes')} className={navItemClass('admin_classes')}>
+                    <School className="w-4 h-4 text-purple-400" />
+                    <span>Data Kelas / Rombel</span>
+                  </button>
+                  <button onClick={() => handleSelect('admin_students')} className={navItemClass('admin_students')}>
+                    <Users className="w-4 h-4 text-emerald-400" />
+                    <span>Data Peserta Didik</span>
                   </button>
                 </div>
               </div>

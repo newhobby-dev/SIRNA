@@ -12,10 +12,12 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useAcademic } from '../../context/AcademicContext';
 import { SystemAccount, UserRole } from '../../types';
 
 export const UserManagement: React.FC = () => {
-  const { systemAccounts, saveAccount, deleteAccount, teachers } = useAuth() as any;
+  const { systemAccounts, saveAccount, deleteAccount } = useAuth();
+  const { teachers } = useAcademic();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<SystemAccount | null>(null);
@@ -272,6 +274,34 @@ export const UserManagement: React.FC = () => {
                   <option value="teacher">Guru Mata Pelajaran (Input Nilai Akhir & Excel)</option>
                 </select>
               </div>
+
+              {formData.role === 'teacher' && (
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Hubungkan ke Data Guru (Agar Penugasan Mengajar Tersambung)
+                  </label>
+                  <select
+                    value={formData.teacherId || ''}
+                    onChange={(e) => {
+                      const tId = e.target.value;
+                      const foundT = teachers.find(t => t.id === tId);
+                      setFormData({
+                        ...formData,
+                        teacherId: tId || undefined,
+                        name: foundT && !formData.name ? foundT.name : formData.name,
+                      });
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 font-semibold text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Pilih Guru dari Data Master --</option>
+                    {teachers.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} (NIP: {t.nip || '-'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Alamat Email</label>
