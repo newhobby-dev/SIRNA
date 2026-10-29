@@ -22,6 +22,7 @@ import {
   Cloud,
   ChevronDown,
   ChevronRight,
+  Trophy,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -38,6 +39,7 @@ export type ActiveTab =
   | 'admin_school_recap'
   | 'admin_upload_export_grades'
   | 'admin_rankings'
+  | 'admin_eligible_rankings'
   | 'admin_analytics'
   | 'admin_completeness'
   | 'admin_audit'
@@ -229,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                   onClick={() => toggleGroup('admin_recap')}
                   className={groupHeaderClass(
                     'admin_recap',
-                    ['admin_school_recap', 'admin_upload_export_grades', 'admin_rankings'].includes(activeTab)
+                    ['admin_school_recap', 'admin_upload_export_grades', 'admin_rankings', 'admin_eligible_rankings'].includes(activeTab)
                   )}
                 >
                   <span className="flex items-center gap-2">
@@ -245,11 +247,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                   <div className="mt-1.5 ml-2 pl-2 border-l border-slate-800 space-y-1">
                     <button onClick={() => handleSelect('admin_school_recap')} className={navItemClass('admin_school_recap')}>
                       <FileText className="w-4 h-4 text-yellow-400 shrink-0" />
-                      <span>Rekap, Unggah & Ekspor Nilai</span>
+                      <span>Rekap & Unggah Nilai</span>
                     </button>
                     <button onClick={() => handleSelect('admin_rankings')} className={navItemClass('admin_rankings')}>
                       <Award className="w-4 h-4 text-amber-300 shrink-0" />
                       <span>Peringkat Kelas & Paralel</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_eligible_rankings')} className={navItemClass('admin_eligible_rankings')}>
+                      <Trophy className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Peringkat Eligible</span>
                     </button>
                   </div>
                 )}
@@ -374,7 +380,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                   onClick={() => toggleGroup('bk_recap')}
                   className={groupHeaderClass(
                     'bk_recap',
-                    ['homeroom_leger', 'admin_rankings', 'admin_analytics', 'admin_completeness'].includes(activeTab)
+                    ['homeroom_leger', 'admin_rankings', 'admin_eligible_rankings', 'admin_analytics', 'admin_completeness'].includes(activeTab)
                   )}
                 >
                   <span>Rekap & Pemantauan Akademik</span>
@@ -392,7 +398,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
                     </button>
                     <button onClick={() => handleSelect('admin_rankings')} className={navItemClass('admin_rankings')}>
                       <Award className="w-4 h-4 text-yellow-300 shrink-0" />
-                      <span>Peringkat Nilai Siswa</span>
+                      <span>Peringkat Kelas & Paralel</span>
+                    </button>
+                    <button onClick={() => handleSelect('admin_eligible_rankings')} className={navItemClass('admin_eligible_rankings')}>
+                      <Trophy className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Peringkat Eligible</span>
                     </button>
                     <button onClick={() => handleSelect('admin_analytics')} className={navItemClass('admin_analytics')}>
                       <BarChart3 className="w-4 h-4 text-sky-400 shrink-0" />

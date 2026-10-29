@@ -101,7 +101,9 @@ const MainContent: React.FC = () => {
       case 'admin_upload_export_grades':
         return <SchoolRecapView initialMode="upload" />;
       case 'admin_rankings':
-        return <RankingsView />;
+        return <RankingsView initialScope="class_parallel" />;
+      case 'admin_eligible_rankings':
+        return <RankingsView initialScope="eligible" />;
       case 'admin_analytics':
         return <AnalyticsView />;
       case 'admin_completeness':

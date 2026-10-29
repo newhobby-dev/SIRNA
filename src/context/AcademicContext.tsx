@@ -74,6 +74,8 @@ interface AcademicContextType {
     classRank?: number | null;
     parallelRank?: number | null;
     eligibleRank?: number | null;
+    averageScore?: number;
+    totalScore?: number;
   }[]) => Promise<void>;
 
   // Management CRUD
@@ -781,6 +783,8 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       classRank?: number | null;
       parallelRank?: number | null;
       eligibleRank?: number | null;
+      averageScore?: number;
+      totalScore?: number;
     }[]
   ) => {
     setIsSyncing(true);
@@ -798,6 +802,14 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const newSummary: AcademicSummary = existing
           ? {
               ...existing,
+              averageScore:
+                up.averageScore !== undefined && !isNaN(up.averageScore)
+                  ? up.averageScore
+                  : existing.averageScore,
+              totalScore:
+                up.totalScore !== undefined && !isNaN(up.totalScore)
+                  ? up.totalScore
+                  : existing.totalScore,
               classRank: up.classRank !== undefined ? up.classRank : existing.classRank,
               parallelRank: up.parallelRank !== undefined ? up.parallelRank : existing.parallelRank,
               eligibleRank: up.eligibleRank !== undefined ? up.eligibleRank : (existing.eligibleRank ?? null),
@@ -814,8 +826,8 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               gradeLevel: studentClass?.gradeLevel || '10',
               academicYearId: selectedYearId,
               semesterId: up.semesterId,
-              averageScore: 0,
-              totalScore: 0,
+              averageScore: up.averageScore !== undefined && !isNaN(up.averageScore) ? up.averageScore : 0,
+              totalScore: up.totalScore !== undefined && !isNaN(up.totalScore) ? up.totalScore : 0,
               subjectCount: 0,
               completedCount: 0,
               mandatoryCount: 0,
@@ -827,14 +839,15 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               updatedAt: new Date().toISOString(),
             };
 
-        updatedSummaries.push(newSummary);
-        batch.set(doc(db, 'academicSummaries', summaryId), newSummary);
+        const sanitizedSummary = sanitizeFirestoreData(newSummary);
+        updatedSummaries.push(sanitizedSummary);
+        batch.set(doc(db, 'academicSummaries', summaryId), sanitizedSummary);
 
         if (up.eligibleRank !== undefined && student) {
-          const updatedSt: Student = {
+          const updatedSt: Student = sanitizeFirestoreData({
             ...student,
             eligibleRank: up.eligibleRank,
-          };
+          });
           updatedStudents.push(updatedSt);
           batch.set(doc(db, 'students', student.id), updatedSt);
         }
