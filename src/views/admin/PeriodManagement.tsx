@@ -7,6 +7,8 @@ import { formatIndonesianDate } from '../../lib/utils';
 export const PeriodManagement: React.FC = () => {
   const {
     academicYears,
+    selectedYearId,
+    setSelectedYearId,
     semesters,
     selectedSemesterId,
     setSelectedSemesterId,
@@ -26,7 +28,7 @@ export const PeriodManagement: React.FC = () => {
     finalizationDate: '',
     publicationDate: '',
     status: 'input',
-    isActive: true,
+    isActive: false,
   });
 
   const getStatusBadge = (status: SemesterStatus) => {
@@ -48,7 +50,10 @@ export const PeriodManagement: React.FC = () => {
 
   const handleOpenEditSemester = (sem: Semester) => {
     setEditingSemester(sem);
-    setFormData(sem);
+    setFormData({
+      ...sem,
+      isActive: sem.id === selectedSemesterId,
+    });
     setIsSemesterModalOpen(true);
   };
 
@@ -60,6 +65,7 @@ export const PeriodManagement: React.FC = () => {
       ...editingSemester,
       ...formData,
       status: formData.status as SemesterStatus,
+      isActive: editingSemester.id === selectedSemesterId,
     };
 
     await saveSemester(updatedSemester);
@@ -74,13 +80,16 @@ export const PeriodManagement: React.FC = () => {
     e.preventDefault();
     if (!newYearName.trim()) return;
 
-    const cleanName = newYearName.trim();
-    const yearId = 'ay_' + cleanName.replace(/[^0-9]/g, '_');
+    const cleanName = newYearName.trim().replace(/\s*\(Aktif\)\s*/gi, '');
+    const existingYear = academicYears.find(
+      y => y.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    const yearId = existingYear ? existingYear.id : 'ay_' + cleanName.replace(/[^0-9]/g, '_');
     const newYear = {
       id: yearId,
       name: cleanName,
-      isActive: true,
-      createdAt: new Date().toISOString(),
+      isActive: yearId === selectedYearId,
+      createdAt: existingYear?.createdAt || new Date().toISOString(),
     };
 
     await saveAcademicYear(newYear);
@@ -90,36 +99,48 @@ export const PeriodManagement: React.FC = () => {
       const startYear = parts[0] || '2027';
       const endYear = parts[1] || '2028';
 
-      const sem1: Semester = {
-        id: `${yearId}_sem1`,
-        academicYearId: yearId,
-        semesterType: '1',
-        name: `Semester Ganjil ${cleanName}`,
-        startDate: `${startYear}-07-15`,
-        gradeSubmissionDeadline: `${startYear}-12-10`,
-        verificationDate: `${startYear}-12-15`,
-        finalizationDate: `${startYear}-12-18`,
-        publicationDate: `${startYear}-12-20`,
-        status: 'input',
-        isActive: true,
-      };
+      const existingSem1 = semesters.find(
+        s => s.academicYearId === yearId && s.semesterType === '1'
+      );
+      const existingSem2 = semesters.find(
+        s => s.academicYearId === yearId && s.semesterType === '2'
+      );
 
-      const sem2: Semester = {
-        id: `${yearId}_sem2`,
-        academicYearId: yearId,
-        semesterType: '2',
-        name: `Semester Genap ${cleanName}`,
-        startDate: `${endYear}-01-05`,
-        gradeSubmissionDeadline: `${endYear}-06-10`,
-        verificationDate: `${endYear}-06-15`,
-        finalizationDate: `${endYear}-06-18`,
-        publicationDate: `${endYear}-06-20`,
-        status: 'preparation',
-        isActive: false,
-      };
+      if (!existingSem1) {
+        const sem1Id = `sem_${startYear}_1`;
+        const sem1: Semester = {
+          id: sem1Id,
+          academicYearId: yearId,
+          semesterType: '1',
+          name: `Semester Ganjil ${cleanName}`,
+          startDate: `${startYear}-07-15`,
+          gradeSubmissionDeadline: `${startYear}-12-10`,
+          verificationDate: `${startYear}-12-15`,
+          finalizationDate: `${startYear}-12-18`,
+          publicationDate: `${startYear}-12-20`,
+          status: 'input',
+          isActive: sem1Id === selectedSemesterId,
+        };
+        await saveSemester(sem1);
+      }
 
-      await saveSemester(sem1);
-      await saveSemester(sem2);
+      if (!existingSem2) {
+        const sem2Id = `sem_${startYear}_2`;
+        const sem2: Semester = {
+          id: sem2Id,
+          academicYearId: yearId,
+          semesterType: '2',
+          name: `Semester Genap ${cleanName}`,
+          startDate: `${endYear}-01-05`,
+          gradeSubmissionDeadline: `${endYear}-06-10`,
+          verificationDate: `${endYear}-06-15`,
+          finalizationDate: `${endYear}-06-18`,
+          publicationDate: `${endYear}-06-20`,
+          status: 'preparation',
+          isActive: sem2Id === selectedSemesterId,
+        };
+        await saveSemester(sem2);
+      }
     }
 
     setNewYearName('');
@@ -135,7 +156,7 @@ export const PeriodManagement: React.FC = () => {
             <span>Manajemen Periode Akademik & Semester</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Kelola siklus semester (Persiapan, Input Nilai, Verifikasi, Finalisasi, Publikasi) dan jadwal batas akhir
+            Kelola siklus semester (Persiapan, Input Nilai, Verifikasi, Finalisasi, Publikasi) dan jadwal batas akhir. Keterangan <strong>Aktif</strong> hanya berlaku pada periode yang sedang dibuka.
           </p>
         </div>
 
@@ -224,10 +245,17 @@ export const PeriodManagement: React.FC = () => {
               }`}
             >
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.color}`}>
-                    {badge.label}
-                  </span>
+                <div className="flex items-center justify-between mb-3 gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.color}`}>
+                      {badge.label}
+                    </span>
+                    {isCurrentSelected && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white">
+                        Sedang Dibuka (Aktif)
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={() => handleOpenEditSemester(sem)}
                     className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
@@ -265,14 +293,17 @@ export const PeriodManagement: React.FC = () => {
 
               <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
                 <button
-                  onClick={() => setSelectedSemesterId(sem.id)}
-                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold transition text-center ${
+                  onClick={() => {
+                    setSelectedYearId(sem.academicYearId);
+                    setSelectedSemesterId(sem.id);
+                  }}
+                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold transition text-center cursor-pointer ${
                     isCurrentSelected
                       ? 'bg-rose-600 text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  {isCurrentSelected ? '✓ Semester Terpilih' : 'Pilih Periode Ini'}
+                  {isCurrentSelected ? '✓ Periode Sedang Dibuka (Aktif)' : 'Buka Periode Ini'}
                 </button>
               </div>
             </div>

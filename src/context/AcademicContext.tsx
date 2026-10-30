@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import {
   collection,
   doc,
@@ -147,22 +147,34 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } catch {}
     return defaultSchoolSetting;
   });
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>(() => {
+  const [rawAcademicYears, setAcademicYears] = useState<AcademicYear[]>(() => {
     try {
       const saved = localStorage.getItem('sirna_academic_years');
       if (saved) return JSON.parse(saved);
     } catch {}
     return defaultAcademicYears;
   });
-  const [selectedYearId, setSelectedYearId] = useState<string>('ay_2026_2027');
-  const [semesters, setSemesters] = useState<Semester[]>(() => {
+  const [selectedYearId, setSelectedYearIdState] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_selected_year_id');
+      if (saved) return saved;
+    } catch {}
+    return 'ay_2026_2027';
+  });
+  const [rawSemesters, setSemesters] = useState<Semester[]>(() => {
     try {
       const saved = localStorage.getItem('sirna_semesters');
       if (saved) return JSON.parse(saved);
     } catch {}
     return defaultSemesters;
   });
-  const [selectedSemesterId, setSelectedSemesterId] = useState<string>('sem_2026_1');
+  const [selectedSemesterId, setSelectedSemesterIdState] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('sirna_selected_semester_id');
+      if (saved) return saved;
+    } catch {}
+    return 'sem_2026_1';
+  });
   const [classes, setClasses] = useState<ClassRoom[]>(() => {
     try {
       const saved = localStorage.getItem('sirna_classes');
@@ -423,6 +435,93 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubAudit();
     };
   }, []);
+
+  // Normalize academicYears: deduplicate by name/id and ensure ONLY the currently opened year has isActive = true
+  const academicYears = useMemo<AcademicYear[]>(() => {
+    const byName = new Map<string, AcademicYear>();
+    const combined = [...rawAcademicYears];
+    defaultAcademicYears.forEach(defY => {
+      if (!combined.some(y => y.id === defY.id || y.name.trim() === defY.name.trim())) {
+        combined.push(defY);
+      }
+    });
+
+    combined.forEach(y => {
+      const cleanName = (y.name || '').replace(/\s*\(Aktif\)\s*/gi, '').trim();
+      const key = cleanName.toLowerCase();
+      const existing = byName.get(key);
+      if (!existing || y.id === selectedYearId) {
+        byName.set(key, {
+          ...y,
+          name: cleanName,
+          isActive: y.id === selectedYearId,
+        });
+      }
+    });
+
+    return Array.from(byName.values()).sort((a, b) => b.name.localeCompare(a.name, 'id'));
+  }, [rawAcademicYears, selectedYearId]);
+
+  // Normalize semesters: deduplicate per (academicYearId, semesterType) and ensure ONLY the currently opened semester has isActive = true
+  const semesters = useMemo<Semester[]>(() => {
+    const byYearAndType = new Map<string, Semester>();
+    const combined = [...rawSemesters];
+    defaultSemesters.forEach(defS => {
+      if (
+        !combined.some(
+          s => s.id === defS.id || (s.academicYearId === defS.academicYearId && s.semesterType === defS.semesterType)
+        )
+      ) {
+        combined.push(defS);
+      }
+    });
+
+    combined.forEach(s => {
+      const cleanName = (s.name || '').replace(/\s*\(Aktif\)\s*/gi, '').trim();
+      const key = `${s.academicYearId}_${s.semesterType}`;
+      const existing = byYearAndType.get(key);
+      const isPreferred =
+        !existing ||
+        s.id === selectedSemesterId ||
+        (existing.id !== selectedSemesterId && s.id.startsWith('sem_'));
+
+      if (isPreferred) {
+        byYearAndType.set(key, {
+          ...s,
+          name: cleanName,
+          isActive: s.id === selectedSemesterId,
+        });
+      }
+    });
+
+    return Array.from(byYearAndType.values()).sort((a, b) => {
+      if (a.academicYearId !== b.academicYearId) {
+        return b.academicYearId.localeCompare(a.academicYearId, 'id');
+      }
+      return Number(a.semesterType) - Number(b.semesterType);
+    });
+  }, [rawSemesters, selectedSemesterId]);
+
+  const setSelectedYearId = (yearId: string) => {
+    setSelectedYearIdState(yearId);
+    try {
+      localStorage.setItem('sirna_selected_year_id', yearId);
+    } catch {}
+  };
+
+  const setSelectedSemesterId = (semId: string) => {
+    setSelectedSemesterIdState(semId);
+    try {
+      localStorage.setItem('sirna_selected_semester_id', semId);
+    } catch {}
+    const targetSem = semesters.find(s => s.id === semId) || rawSemesters.find(s => s.id === semId);
+    if (targetSem && targetSem.academicYearId && targetSem.academicYearId !== selectedYearId) {
+      setSelectedYearIdState(targetSem.academicYearId);
+      try {
+        localStorage.setItem('sirna_selected_year_id', targetSem.academicYearId);
+      } catch {}
+    }
+  };
 
   const currentSemester = semesters.find(s => s.id === selectedSemesterId);
 
@@ -1341,20 +1440,54 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // CRUD for Semester
   const saveSemester = async (semester: Semester) => {
-    const isNew = !semesters.some(s => s.id === semester.id);
-    const updated = isNew ? [...semesters, semester] : semesters.map(s => s.id === semester.id ? semester : s);
+    const cleanName = (semester.name || '').replace(/\s*\(Aktif\)\s*/gi, '').trim();
+    const existingSamePeriod = semesters.find(
+      s => s.id === semester.id || (s.academicYearId === semester.academicYearId && s.semesterType === semester.semesterType)
+    );
+    const targetId = existingSamePeriod ? existingSamePeriod.id : semester.id;
+    const normalizedSem: Semester = sanitizeFirestoreData({
+      ...semester,
+      id: targetId,
+      name: cleanName,
+      isActive: targetId === selectedSemesterId,
+    });
+
+    const isNew = !rawSemesters.some(s => s.id === targetId);
+    const updated = isNew
+      ? [...rawSemesters, normalizedSem]
+      : rawSemesters.map(s => (s.id === targetId ? normalizedSem : s));
     setSemesters(updated);
-    await setDoc(doc(db, 'semesters', semester.id), semester);
-    await logAuditAction('UPDATE_SEMESTER', semester.name, `Status: ${semester.status}`);
+    try {
+      localStorage.setItem('sirna_semesters', JSON.stringify(updated));
+    } catch {}
+    await setDoc(doc(db, 'semesters', normalizedSem.id), normalizedSem);
+    await logAuditAction('UPDATE_SEMESTER', normalizedSem.name, `Status: ${normalizedSem.status}`);
   };
 
   // CRUD for Academic Year
   const saveAcademicYear = async (year: AcademicYear) => {
-    const isNew = !academicYears.some(y => y.id === year.id);
-    const updated = isNew ? [...academicYears, year] : academicYears.map(y => y.id === year.id ? year : y);
+    const cleanName = (year.name || '').replace(/\s*\(Aktif\)\s*/gi, '').trim();
+    const existingSameYear = academicYears.find(
+      y => y.id === year.id || y.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    const targetId = existingSameYear ? existingSameYear.id : year.id;
+    const normalizedYear: AcademicYear = sanitizeFirestoreData({
+      ...year,
+      id: targetId,
+      name: cleanName,
+      isActive: targetId === selectedYearId,
+    });
+
+    const isNew = !rawAcademicYears.some(y => y.id === targetId);
+    const updated = isNew
+      ? [...rawAcademicYears, normalizedYear]
+      : rawAcademicYears.map(y => (y.id === targetId ? normalizedYear : y));
     setAcademicYears(updated);
-    await setDoc(doc(db, 'academicYears', year.id), year);
-    await logAuditAction('UPDATE_ACADEMIC_YEAR', year.name, `Aktif: ${year.isActive}`);
+    try {
+      localStorage.setItem('sirna_academic_years', JSON.stringify(updated));
+    } catch {}
+    await setDoc(doc(db, 'academicYears', normalizedYear.id), normalizedYear);
+    await logAuditAction('UPDATE_ACADEMIC_YEAR', normalizedYear.name, `Dibuka: ${normalizedYear.isActive}`);
   };
 
   // Backup & Restore (JSON)

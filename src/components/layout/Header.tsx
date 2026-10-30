@@ -57,8 +57,22 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarOpen, 
     }
   };
 
-  // Available semesters for the chosen academic year
-  const filteredSemesters = semesters.filter(s => s.academicYearId === selectedYearId);
+  // Available semesters for the chosen academic year (strictly 1 Ganjil & 1 Genap, sorted Ganjil -> Genap)
+  const filteredSemesters = React.useMemo(() => {
+    const yearSems = semesters.filter(s => s.academicYearId === selectedYearId);
+    const byType = new Map<string, (typeof semesters)[0]>();
+    yearSems.forEach(s => {
+      const key = s.semesterType || s.id;
+      const existing = byType.get(key);
+      // Prefer the currently selected semester if duplicate exists
+      if (!existing || s.id === selectedSemesterId) {
+        byType.set(key, s);
+      }
+    });
+    return Array.from(byType.values()).sort((a, b) =>
+      String(a.semesterType).localeCompare(String(b.semesterType))
+    );
+  }, [semesters, selectedYearId, selectedSemesterId]);
 
   const getRoleLabel = (r: UserRole) => {
     switch (r) {
@@ -139,17 +153,23 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarOpen, 
             <select
               value={selectedYearId}
               onChange={(e) => {
-                setSelectedYearId(e.target.value);
-                const matching = semesters.find(s => s.academicYearId === e.target.value);
+                const newYearId = e.target.value;
+                setSelectedYearId(newYearId);
+                const matching = semesters
+                  .filter(s => s.academicYearId === newYearId)
+                  .sort((a, b) => String(a.semesterType).localeCompare(String(b.semesterType)))[0];
                 if (matching) setSelectedSemesterId(matching.id);
               }}
               className="bg-transparent text-white font-medium focus:outline-none cursor-pointer"
             >
-              {academicYears.map((ay) => (
-                <option key={ay.id} value={ay.id} className="bg-slate-900 text-white">
-                  TP {ay.name} {ay.isActive ? '(Aktif)' : ''}
-                </option>
-              ))}
+              {academicYears.map((ay) => {
+                const isCurrentOpenYear = ay.id === selectedYearId;
+                return (
+                  <option key={ay.id} value={ay.id} className="bg-slate-900 text-white">
+                    TP {ay.name} {isCurrentOpenYear ? '(Aktif)' : ''}
+                  </option>
+                );
+              })}
             </select>
 
             <span className="text-slate-600">|</span>
@@ -159,11 +179,15 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar, isSidebarOpen, 
               onChange={(e) => setSelectedSemesterId(e.target.value)}
               className="bg-transparent text-blue-300 font-semibold focus:outline-none cursor-pointer"
             >
-              {filteredSemesters.map((s) => (
-                <option key={s.id} value={s.id} className="bg-slate-900 text-white">
-                  {s.name} ({s.status})
-                </option>
-              ))}
+              {filteredSemesters.map((s) => {
+                const isCurrentOpenSem = s.id === selectedSemesterId;
+                const cleanSemName = s.name.replace(/\s*\(Aktif\)/gi, '').trim();
+                return (
+                  <option key={s.id} value={s.id} className="bg-slate-900 text-white">
+                    {cleanSemName} {isCurrentOpenSem ? '(Aktif)' : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
         )}

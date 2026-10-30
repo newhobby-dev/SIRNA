@@ -782,7 +782,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
                 >
                   {semesters.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.name}
+                      {s.name} {s.id === selectedSemesterId ? '(Aktif)' : ''}
                     </option>
                   ))}
                 </select>
