@@ -36,10 +36,12 @@ export const StudentManagement: React.FC = () => {
   const {
     students,
     classes,
+    gradeEntries,
     saveStudent,
     saveStudentsBatch,
     deleteStudent,
     promoteStudentsBatch,
+    revertStudentPromotion,
     selectedYearId,
     selectedSemesterId,
   } = useAcademic();
@@ -116,6 +118,23 @@ export const StudentManagement: React.FC = () => {
     );
   }, [students, sourceClassId]);
 
+  // Students who were previously in sourceClassId and have already been promoted to another class
+  const promotedFromSourceStudents = useMemo(() => {
+    if (!sourceClassId) return [];
+    const studentIdsWithGradesInSource = new Set(
+      gradeEntries.filter(g => g.classId === sourceClassId).map(g => g.studentId)
+    );
+    return sortStudentsAlphabetically(
+      students.filter(
+        s =>
+          s.status === 'aktif' &&
+          s.currentClassId !== sourceClassId &&
+          ((s.classHistory || []).some(h => h.classId === sourceClassId) ||
+            studentIdsWithGradesInSource.has(s.id))
+      )
+    );
+  }, [students, gradeEntries, sourceClassId]);
+
   const handleToggleSelectAll = () => {
     if (selectedStudentIds.length === sourceStudents.length) {
       setSelectedStudentIds([]);
@@ -133,7 +152,6 @@ export const StudentManagement: React.FC = () => {
   const handleExecutePromotion = async () => {
     const targetClass = classes.find(c => c.id === targetClassId);
     if (!targetClass) {
-      alert('Pilih kelas rombel tujuan terlebih dahulu.');
       return;
     }
 
@@ -142,7 +160,6 @@ export const StudentManagement: React.FC = () => {
       : selectedStudentIds;
 
     if (idsToPromote.length === 0) {
-      alert('Pilih setidaknya 1 peserta didik untuk diproses kenaikan kelasnya.');
       return;
     }
 
@@ -157,11 +174,28 @@ export const StudentManagement: React.FC = () => {
         selectedSemesterId
       );
       setPromotionFeedback(
-        `Sukses! ${idsToPromote.length} peserta didik berhasil dinaikkan ke ${targetClass.name}. Riwayat rombel lama diarsipkan dan nilai terlindungi dari tertukar.`
+        `Sukses! ${idsToPromote.length} peserta didik berhasil dinaikkan ke ${targetClass.name}. Data nilai pada kelas asal tetap tersimpan di arsip kelas asal dan tidak tertukar ke kelas baru.`
       );
       setSelectedStudentIds([]);
     } catch (err: any) {
-      alert('Gagal memproses kenaikan kelas: ' + (err.message || 'Error'));
+      setPromotionFeedback('Gagal memproses kenaikan kelas: ' + (err.message || 'Error'));
+    } finally {
+      setIsPromoting(false);
+    }
+  };
+
+  const handleRevertFromPromotion = async (idsToRevert: string[]) => {
+    if (!sourceClassId || idsToRevert.length === 0) return;
+    const sourceCls = classes.find(c => c.id === sourceClassId);
+    setIsPromoting(true);
+    setPromotionFeedback(null);
+    try {
+      await revertStudentPromotion(idsToRevert, sourceClassId);
+      setPromotionFeedback(
+        `Berhasil mengembalikan ${idsToRevert.length} peserta didik ke rombel asal (${sourceCls?.name || 'Kelas Asal'}).`
+      );
+    } catch (err: any) {
+      setPromotionFeedback('Gagal mengembalikan rombel: ' + (err.message || 'Error'));
     } finally {
       setIsPromoting(false);
     }
@@ -937,8 +971,50 @@ export const StudentManagement: React.FC = () => {
               </div>
 
               {sourceStudents.length === 0 ? (
-                <div className="p-6 text-center text-xs text-slate-400">
-                  Tidak ada peserta didik aktif di rombel asal yang dipilih.
+                <div className="p-6 text-center text-xs text-slate-500 space-y-3">
+                  <p>Tidak ada peserta didik aktif yang saat ini berada di rombel asal ini.</p>
+                  {promotedFromSourceStudents.length > 0 && (
+                    <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-left space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-blue-900 text-xs">
+                          Terdeteksi {promotedFromSourceStudents.length} Siswa dari Rombel Ini Telah Naik Kelas:
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isPromoting}
+                          onClick={() => handleRevertFromPromotion(promotedFromSourceStudents.map(s => s.id))}
+                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition cursor-pointer"
+                        >
+                          Kembalikan Semua ke Rombel Asal
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-blue-800">
+                        Catatan: Data nilai mereka saat di rombel asal tetap dapat dilihat di menu <strong>Rekap & Unggah Nilai</strong> (pilih kelas asal) maupun di <strong>Portal Nilai Siswa</strong> (dengan identitas kelas asal).
+                      </p>
+                      <div className="max-h-32 overflow-y-auto divide-y divide-blue-100 bg-white rounded-lg border border-blue-200 p-2">
+                        {promotedFromSourceStudents.map(st => (
+                          <div key={st.id} className="py-1 flex items-center justify-between text-[11px]">
+                            <span className="font-semibold text-slate-800">
+                              {st.name} <span className="text-slate-400 font-mono">({st.nis})</span>
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-bold text-[10px]">
+                                Kini di {st.currentClassName}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={isPromoting}
+                                onClick={() => handleRevertFromPromotion([st.id])}
+                                className="text-blue-600 hover:underline font-bold text-[10px] cursor-pointer"
+                              >
+                                Kembalikan
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <table className="w-full text-left text-xs">

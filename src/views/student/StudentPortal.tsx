@@ -29,6 +29,7 @@ import {
   exportExcelWorkbook,
   sortSubjects,
   isSubjectApplicableToClass,
+  isSubjectApplicableToStudent,
 } from '../../lib/utils';
 import { Student, GradeEntry, AcademicSummary, Semester } from '../../types';
 
@@ -57,8 +58,9 @@ export const StudentPortal: React.FC = () => {
   // View mode: 'semester' = Rangkuman Nilai Per Semester, 'summary6' = Rangkuman Nilai (Sem 1 - 6)
   const [viewMode, setViewMode] = useState<'semester' | 'summary6'>('semester');
 
-  // Chosen semester inside single-semester view
+  // Chosen semester & class inside single-semester view
   const [activeSemId, setActiveSemId] = useState<string>(selectedSemesterId);
+  const [selectedPortalClassId, setSelectedPortalClassId] = useState<string>('AUTO');
 
   // Semesters that have published grades or active
   const availableSemesters = useMemo(() => {
@@ -163,23 +165,77 @@ export const StudentPortal: React.FC = () => {
     return semType === '1' ? 1 : 2;
   };
 
-  // Published grades for this student and active semester, sorted by subject sortOrder and filtered by class applicability
+  // List of classes this student has belonged to (historical Class X + current Class XI/XII)
+  const studentAvailableClasses = useMemo(() => {
+    if (!verifiedStudent) return [];
+    const classIds = new Set<string>();
+    (verifiedStudent.classHistory || []).forEach(h => {
+      if (h.classId) classIds.add(h.classId);
+    });
+    gradeEntries
+      .filter(g => g.studentId === verifiedStudent.id && g.status === 'published')
+      .forEach(g => {
+        if (g.classId) classIds.add(g.classId);
+      });
+    if (verifiedStudent.currentClassId) {
+      classIds.add(verifiedStudent.currentClassId);
+    }
+    return classes
+      .filter(c => classIds.has(c.id))
+      .sort((a, b) => Number(a.gradeLevel) - Number(b.gradeLevel));
+  }, [verifiedStudent, gradeEntries, classes]);
+
+  // Determine the accurate Class (e.g. Kelas X-A vs Kelas XI-A) for the currently viewed semester & report card
+  const effectiveReportClass = useMemo(() => {
+    if (!verifiedStudent) return undefined;
+
+    // 1. If student explicitly chose a class tab/filter (e.g. Kelas X-A or Kelas XI-A)
+    if (selectedPortalClassId !== 'AUTO') {
+      const explicitCls = classes.find(c => c.id === selectedPortalClassId);
+      if (explicitCls) return explicitCls;
+    }
+
+    // 2. Check published grades in activeSemId to see which classId those grades were recorded under
+    const semGrades = gradeEntries.filter(
+      g => g.studentId === verifiedStudent.id && g.semesterId === activeSemId && g.status === 'published'
+    );
+    if (semGrades.length > 0 && semGrades[0].classId) {
+      const gradeCls = classes.find(c => c.id === semGrades[0].classId);
+      if (gradeCls) return gradeCls;
+    }
+
+    // 3. Check student's classHistory for activeSemId
+    const hist = (verifiedStudent.classHistory || []).find(h => h.semesterId === activeSemId);
+    if (hist?.classId) {
+      const histCls = classes.find(c => c.id === hist.classId);
+      if (histCls) return histCls;
+    }
+
+    // 4. Fallback to student's currentClassId
+    return classes.find(c => c.id === verifiedStudent.currentClassId);
+  }, [verifiedStudent, selectedPortalClassId, activeSemId, gradeEntries, classes]);
+
+  // Published grades for this student, active semester, and effectiveReportClass
   const studentGrades = useMemo(() => {
     if (!verifiedStudent) return [];
     const sortedSubjOrder = new Map<string, number>();
     const subjectsById = new Map(subjects.map(s => [s.id, s]));
     sortSubjects(subjects).forEach((s, idx) => sortedSubjOrder.set(s.id, idx));
 
-    const currentCls = classes.find(c => c.id === verifiedStudent.currentClassId);
+    const targetClassId = effectiveReportClass?.id || verifiedStudent.currentClassId;
 
     return gradeEntries
       .filter(g => {
         if (g.studentId !== verifiedStudent.id || g.semesterId !== activeSemId || g.status !== 'published') {
           return false;
         }
+        // Strictly match the class being viewed so Class X grades never appear under Class XI title!
+        if (targetClassId && g.classId && g.classId !== targetClassId) {
+          return false;
+        }
         const subjObj = subjectsById.get(g.subjectId);
-        const gradeCls = classes.find(c => c.id === g.classId) || currentCls;
-        if (subjObj && gradeCls && !isSubjectApplicableToClass(subjObj, gradeCls)) {
+        const gradeCls = classes.find(c => c.id === g.classId) || effectiveReportClass;
+        if (subjObj && !isSubjectApplicableToStudent(subjObj, verifiedStudent.id, gradeCls)) {
           return false;
         }
         return true;
@@ -190,15 +246,43 @@ export const StudentPortal: React.FC = () => {
         if (ordA !== ordB) return ordA - ordB;
         return a.subjectName.localeCompare(b.subjectName, 'id');
       });
-  }, [verifiedStudent, activeSemId, gradeEntries, subjects, classes]);
+  }, [verifiedStudent, activeSemId, effectiveReportClass, gradeEntries, subjects, classes]);
 
-  // Student summary for this semester (including manual ranks input by Admin)
+  // Student summary for this semester & effective class
   const studentSummary = useMemo(() => {
     if (!verifiedStudent) return null;
-    return academicSummaries.find(
+    const rawSum = academicSummaries.find(
       s => s.studentId === verifiedStudent.id && s.semesterId === activeSemId
     );
-  }, [verifiedStudent, activeSemId, academicSummaries]);
+    // Calculate live average from studentGrades if summary was for a different class or if grades exist
+    if (studentGrades.length > 0) {
+      const total = studentGrades.reduce((acc, g) => acc + g.finalScore, 0);
+      const avg = Math.round((total / studentGrades.length) * 100) / 100;
+      const applicableMandatory = subjects.filter(
+        s =>
+          s.isActive &&
+          (s.isMandatory || (s.targetStudentIds && s.targetStudentIds.includes(verifiedStudent.id))) &&
+          isSubjectApplicableToStudent(s, verifiedStudent.id, effectiveReportClass)
+      );
+      const isComplete =
+        applicableMandatory.length > 0 && studentGrades.length >= applicableMandatory.length;
+
+      return {
+        ...(rawSum || {}),
+        averageScore: avg,
+        totalScore: total,
+        isComplete,
+        classRank:
+          !rawSum?.classId || rawSum.classId === effectiveReportClass?.id ? rawSum?.classRank ?? null : null,
+        parallelRank:
+          !rawSum?.classId || rawSum.classId === effectiveReportClass?.id ? rawSum?.parallelRank ?? null : null,
+      };
+    }
+    if (rawSum && (!rawSum.classId || rawSum.classId === effectiveReportClass?.id)) {
+      return rawSum;
+    }
+    return null;
+  }, [verifiedStudent, activeSemId, academicSummaries, studentGrades, subjects, effectiveReportClass]);
 
   // Student eligible ranking: from student profile or summaries
   const eligibleRank = useMemo(() => {
@@ -286,7 +370,7 @@ export const StudentPortal: React.FC = () => {
       .filter(row => {
         const subjObj = subjectsById.get(row.id);
         const isApplicableToCurrentClass = subjObj
-          ? isSubjectApplicableToClass(subjObj, currentStudentClass)
+          ? isSubjectApplicableToStudent(subjObj, verifiedStudent.id, currentStudentClass)
           : true;
 
         if (!isApplicableToCurrentClass && Object.keys(row.semScores).length === 0) {
@@ -921,42 +1005,66 @@ export const StudentPortal: React.FC = () => {
       {/* ============================================================== */}
       {viewMode === 'semester' && (
         <div className="space-y-6">
-          {/* Directive 1a: Periode Tahun Pelajaran & Semester di dalam kolom halaman peserta didik */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+          {/* Directive 1a: Periode Tahun Pelajaran, Kelas/Tingkat & Semester di dalam kolom halaman peserta didik */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold shrink-0">
                 <Calendar className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-xs sm:text-sm font-bold text-slate-900">
-                  Pilihan Periode Tahun Pelajaran & Semester
+                  Pilihan Tingkat Kelas & Periode Semester
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Tentukan periode semester yang ingin ditampilkan pada rangkuman nilai Anda
+                  Pilih tingkat kelas (misal Nilai Kelas X atau Kelas XI) dan semester yang ingin ditampilkan
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500 hidden md:inline">Semester:</span>
-              <select
-                value={activeSemId}
-                onChange={(e) => setActiveSemId(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-blue-200 font-bold text-xs text-blue-950 bg-blue-50/70 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs"
-              >
-                {availableSemesters.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} {s.status === 'published' ? '(Resmi Terbit)' : `(${s.status})`}
-                  </option>
-                ))}
-              </select>
+            <div className="flex flex-wrap items-center gap-2">
+              {studentAvailableClasses.length > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-slate-500">Tingkat / Rombel:</span>
+                  <select
+                    value={selectedPortalClassId}
+                    onChange={(e) => setSelectedPortalClassId(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-indigo-200 font-bold text-xs text-indigo-950 bg-indigo-50/70 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-xs"
+                  >
+                    <option value="AUTO">
+                      Otomatis Sesuai Data Nilai ({effectiveReportClass?.name || 'Kelas'})
+                    </option>
+                    {studentAvailableClasses.map(cls => (
+                      <option key={cls.id} value={cls.id}>
+                        Nilai Tingkat Kelas {cls.gradeLevel} — {cls.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-slate-500 hidden md:inline">Semester:</span>
+                <select
+                  value={activeSemId}
+                  onChange={(e) => setActiveSemId(e.target.value)}
+                  className="px-3.5 py-2 rounded-xl border border-blue-200 font-bold text-xs text-blue-950 bg-blue-50/70 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs"
+                >
+                  {availableSemesters.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} {s.status === 'published' ? '(Resmi Terbit)' : `(${s.status})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
           {/* KPI Cards (Screen only) - Directive 1e: Peringkat Kelas & Paralel Manual Input */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 no-print">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-              <span className="text-[11px] font-semibold text-slate-500 block">Rata-Rata Semester</span>
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Rata-Rata ({effectiveReportClass?.name || 'Semester'})
+              </span>
               <div className="text-2xl font-extrabold text-blue-900 mt-1">
                 {studentSummary?.averageScore ? formatIndonesianNumber(studentSummary.averageScore) : '-'}
               </div>
@@ -973,7 +1081,7 @@ export const StudentPortal: React.FC = () => {
                   <span>{studentSummary?.classRank ? `Ke-${studentSummary.classRank}` : '-'}</span>
                 </div>
                 <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  {studentSummary?.classRank ? 'Ditetapkan Pihak Sekolah' : 'Belum Ditetapkan'}
+                  {studentSummary?.classRank ? `Pada ${effectiveReportClass?.name || 'Kelas'}` : 'Belum Ditetapkan'}
                 </span>
               </div>
             )}
@@ -986,7 +1094,9 @@ export const StudentPortal: React.FC = () => {
                   <span>{studentSummary?.parallelRank ? `Ke-${studentSummary.parallelRank}` : '-'}</span>
                 </div>
                 <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  {studentSummary?.parallelRank ? 'Peringkat Seluruh Tingkat' : 'Belum Ditetapkan'}
+                  {studentSummary?.parallelRank
+                    ? `Tingkat Kelas ${effectiveReportClass?.gradeLevel || ''}`
+                    : 'Belum Ditetapkan'}
                 </span>
               </div>
             )}
@@ -1011,8 +1121,18 @@ export const StudentPortal: React.FC = () => {
           {/* Official Report Card Sheet (Printed and Screen) */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 print-page">
             <PrintHeader
-              documentTitle="REKAPITULASI HASIL BELAJAR PESERTA DIDIK"
-              subTitle={`Tahun Pelajaran: ${schoolSettings.schoolName} | ${activeSemester?.name || ''}`}
+              documentTitle={`REKAPITULASI HASIL BELAJAR PESERTA DIDIK — KELAS ${
+                effectiveReportClass?.gradeLevel === '10'
+                  ? 'X'
+                  : effectiveReportClass?.gradeLevel === '11'
+                  ? 'XI'
+                  : effectiveReportClass?.gradeLevel === '12'
+                  ? 'XII'
+                  : effectiveReportClass?.gradeLevel || ''
+              }`}
+              subTitle={`Rombongan Belajar: ${
+                effectiveReportClass?.name || verifiedStudent.currentClassName
+              } | ${schoolSettings.schoolName} | ${activeSemester?.name || ''}`}
             />
 
             {/* Student Identity Grid */}
@@ -1035,11 +1155,16 @@ export const StudentPortal: React.FC = () => {
               <div className="space-y-1.5">
                 <div className="flex">
                   <span className="w-36 text-slate-500">Rombongan Belajar</span>
-                  <strong className="text-slate-900">: {studentClass?.name || verifiedStudent.currentClassName}</strong>
+                  <strong className="text-slate-900">
+                    : {effectiveReportClass?.name || verifiedStudent.currentClassName}
+                  </strong>
                 </div>
                 <div className="flex">
                   <span className="w-36 text-slate-500">Tingkat / Fase</span>
-                  <strong className="text-slate-900">: Kelas {studentClass?.gradeLevel || '10'}</strong>
+                  <strong className="text-slate-900">
+                    : Kelas {effectiveReportClass?.gradeLevel || studentClass?.gradeLevel || '10'}{' '}
+                    ({effectiveReportClass?.gradeLevel === '10' ? 'Fase E' : 'Fase F'})
+                  </strong>
                 </div>
                 <div className="flex">
                   <span className="w-36 text-slate-500">Semester</span>

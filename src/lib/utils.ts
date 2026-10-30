@@ -519,12 +519,31 @@ export function normalizeGradeLevel(grade?: string, classNameOrCode?: string): s
 
 /**
  * Mengecek apakah suatu Mata Pelajaran dipelajari pada Kelas/Rombel tertentu secara detail.
+ * - Jika subject.targetStudentIds berisi daftar ID siswa spesifik (Peminatan berdasarkan nama siswa),
+ *   maka berlaku pada kelas yang memiliki siswa tersebut (atau terdaftar di targetClassIds).
  * - Jika subject.targetClassIds berisi daftar ID kelas spesifik (misal hanya ['cls_xi_d']),
  *   maka mata pelajaran tersebut HANYA berlaku di kelas yang terdaftar di targetClassIds.
  * - Jika targetClassIds kosong / tidak diatur, maka mengikuti tingkat kelas (gradeLevel: 'Semua', '10', '11', '12').
  */
-export function isSubjectApplicableToClass(subject: Subject, cls?: ClassRoom | null): boolean {
+export function isSubjectApplicableToClass(
+  subject: Subject,
+  cls?: ClassRoom | null,
+  classStudents?: Student[]
+): boolean {
   if (!cls) return true;
+  if (Array.isArray(subject.targetStudentIds) && subject.targetStudentIds.length > 0) {
+    if (classStudents && classStudents.length > 0) {
+      if (classStudents.some(st => subject.targetStudentIds!.includes(st.id))) {
+        return true;
+      }
+    }
+    if (Array.isArray(subject.targetClassIds) && subject.targetClassIds.length > 0) {
+      return subject.targetClassIds.includes(cls.id);
+    }
+    if (classStudents && classStudents.length > 0) {
+      return false;
+    }
+  }
   if (Array.isArray(subject.targetClassIds) && subject.targetClassIds.length > 0) {
     return subject.targetClassIds.includes(cls.id);
   }
@@ -542,6 +561,66 @@ export function isSubjectApplicableToClass(subject: Subject, cls?: ClassRoom | n
   }
   const subjGrade = normalizeGradeLevel(rawGrade);
   return subjGrade === clsGrade;
+}
+
+/**
+ * Mengecek apakah suatu Mata Pelajaran diambil/dipelajari oleh Peserta Didik tertentu.
+ * - Jika Mata Pelajaran memiliki pengaturan per nama peserta didik (`targetStudentIds`),
+ *   maka hanya peserta didik yang namanya dipilih di `targetStudentIds` yang wajib/mengikuti mapel tersebut.
+ * - Jika `targetStudentIds` kosong, maka mengikuti aturan kelas (`isSubjectApplicableToClass`).
+ */
+export function isSubjectApplicableToStudent(
+  subject: Subject,
+  studentId: string,
+  cls?: ClassRoom | null
+): boolean {
+  if (Array.isArray(subject.targetStudentIds) && subject.targetStudentIds.length > 0) {
+    return subject.targetStudentIds.includes(studentId);
+  }
+  return isSubjectApplicableToClass(subject, cls);
+}
+
+/**
+ * Mengambil daftar peserta didik pada suatu Kelas/Rombel (termasuk siswa yang pernah berada di kelas tersebut
+ * sebelum naik kelas / memiliki riwayat nilai di kelas tersebut), sehingga ketika siswa naik dari Kelas X ke XI,
+ * data nilai saat di Kelas X tetap utuh dan dapat dilihat pada Kelas X.
+ */
+export function getClassStudentsWithHistory(params: {
+  classId: string;
+  semesterId?: string;
+  students: Student[];
+  gradeEntries: GradeEntry[];
+}): Student[] {
+  const { classId, semesterId, students, gradeEntries } = params;
+  if (!classId) return [];
+
+  const studentIdsWithGradesInClass = new Set<string>();
+  gradeEntries.forEach(g => {
+    if (g.classId === classId && (!semesterId || g.semesterId === semesterId)) {
+      studentIdsWithGradesInClass.add(g.studentId);
+    }
+  });
+
+  // Jika pada semester terpilih belum ditemukan entri tapi ada nilai kelas tersebut di semester lain, tetap kenali riwayat kelasnya
+  if (studentIdsWithGradesInClass.size === 0) {
+    gradeEntries.forEach(g => {
+      if (g.classId === classId) {
+        studentIdsWithGradesInClass.add(g.studentId);
+      }
+    });
+  }
+
+  const matched = students.filter(s => {
+    if (s.status !== 'aktif') return false;
+    if (s.currentClassId === classId) return true;
+    if (studentIdsWithGradesInClass.has(s.id)) return true;
+    if (Array.isArray(s.classHistory) && s.classHistory.some(h => h.classId === classId)) {
+      return true;
+    }
+    return false;
+  });
+
+  return sortStudentsAlphabetically(matched);
 }
 
 /**
@@ -571,12 +650,17 @@ export function downloadAllSubjectsTemplate(params: {
 
   classes.forEach(cls => {
     const classStudents = sortStudentsAlphabetically(
-      students.filter(s => s.currentClassId === cls.id && s.status === 'aktif')
+      students.filter(
+        s =>
+          s.status === 'aktif' &&
+          (s.currentClassId === cls.id ||
+            (Array.isArray(s.classHistory) && s.classHistory.some(h => h.classId === cls.id)))
+      )
     );
 
     // Filter subjects strictly applicable to this specific class
     const subjectsToUse = sortedAllSubjects.filter(
-      sub => sub.isActive && isSubjectApplicableToClass(sub, cls)
+      sub => sub.isActive && isSubjectApplicableToClass(sub, cls, classStudents)
     );
 
     const sheetData = classStudents.map((st, idx) => {
@@ -590,8 +674,13 @@ export function downloadAllSubjectsTemplate(params: {
 
       subjectsToUse.forEach(sub => {
         const colHeader = `${sub.code} - ${sub.name}`;
-        if (includeExistingScores && existingGradesMap) {
-          const val = existingGradesMap.get(`${st.id}_${sub.id}`);
+        const takesSubject = isSubjectApplicableToStudent(sub, st.id, cls);
+        if (!takesSubject) {
+          row[colHeader] = '-';
+        } else if (includeExistingScores && existingGradesMap) {
+          const val =
+            existingGradesMap.get(`${cls.id}_${st.id}_${sub.id}`) ??
+            existingGradesMap.get(`${st.id}_${sub.id}`);
           row[colHeader] = val !== undefined ? val : '';
         } else {
           row[colHeader] = '';

@@ -38,7 +38,13 @@ import {
   initialGradeEntries,
   defaultSummaries,
 } from '../lib/seedData';
-import { assignCompetitionRanks, sortStudentsAlphabetically, isSubjectApplicableToClass, sortSubjects } from '../lib/utils';
+import {
+  assignCompetitionRanks,
+  sortStudentsAlphabetically,
+  isSubjectApplicableToClass,
+  isSubjectApplicableToStudent,
+  sortSubjects,
+} from '../lib/utils';
 import { useAuth } from './AuthContext';
 
 interface AcademicContextType {
@@ -64,8 +70,25 @@ interface AcademicContextType {
 
   // Grade Operations
   saveGradeEntries: (entries: Partial<GradeEntry>[], status: GradeStatus) => Promise<void>;
-  verifyAssignmentGrades: (assignmentId: string, approve: boolean, revisionNote?: string) => Promise<void>;
+  verifyAssignmentGrades: (
+    assignmentId: string,
+    approve: boolean,
+    revisionNote?: string,
+    fallbackTarget?: { classId: string; subjectId: string; semesterId: string; className?: string; subjectName?: string }
+  ) => Promise<void>;
   finalizeAssignmentGrades: (assignmentId: string) => Promise<void>;
+  deleteVerificationSubmission: (params: {
+    assignmentId?: string;
+    classId: string;
+    subjectId: string;
+    semesterId: string;
+    deleteAssignmentToo?: boolean;
+  }) => Promise<void>;
+  deleteSingleGradeEntry: (gradeEntryId: string) => Promise<void>;
+  clearVerificationSubmissions: (params: {
+    semesterId: string;
+    mode: 'default_only' | 'all_submissions';
+  }) => Promise<number>;
   publishSemesterGrades: (semesterId: string) => Promise<void>;
   recalculateAveragesAndRanks: (semesterId: string) => Promise<void>;
   saveManualRanks: (updates: {
@@ -110,6 +133,7 @@ interface AcademicContextType {
     targetAcademicYearId: string,
     targetSemesterId: string
   ) => Promise<void>;
+  revertStudentPromotion: (studentIds: string[], targetOldClassId: string) => Promise<void>;
 }
 
 const AcademicContext = createContext<AcademicContextType | undefined>(undefined);
@@ -252,27 +276,27 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               setSubjects(items);
               try { localStorage.setItem('sirna_subjects', JSON.stringify(items)); } catch {}
             }
-            if (teachersSnap && !teachersSnap.empty) {
+            if (teachersSnap) {
               const items = teachersSnap.docs.map(d => ({ ...d.data(), id: d.id } as Teacher));
               setTeachers(items);
               try { localStorage.setItem('sirna_teachers', JSON.stringify(items)); } catch {}
             }
-            if (assignsSnap && !assignsSnap.empty) {
+            if (assignsSnap) {
               const items = assignsSnap.docs.map(d => ({ ...d.data(), id: d.id } as TeachingAssignment));
               setTeachingAssignments(items);
               try { localStorage.setItem('sirna_assignments', JSON.stringify(items)); } catch {}
             }
-            if (studentsSnap && !studentsSnap.empty) {
+            if (studentsSnap) {
               const items = studentsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Student));
               setStudents(items);
               try { localStorage.setItem('sirna_students', JSON.stringify(items)); } catch {}
             }
-            if (gradesSnap && !gradesSnap.empty) {
+            if (gradesSnap) {
               const items = gradesSnap.docs.map(d => ({ ...d.data(), id: d.id } as GradeEntry));
               setGradeEntries(items);
               try { localStorage.setItem('sirna_grades', JSON.stringify(items)); } catch {}
             }
-            if (sumsSnap && !sumsSnap.empty) {
+            if (sumsSnap) {
               const items = sumsSnap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicSummary));
               setAcademicSummaries(items);
               try { localStorage.setItem('sirna_summaries', JSON.stringify(items)); } catch {}
@@ -341,43 +365,38 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, handleSnapshotErr('subjects'));
 
     const unsubTeachers = onSnapshot(collection(db, 'teachers'), (snap) => {
-      if (!snap.empty) {
-        const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Teacher));
-        setTeachers(items);
-        setNetworkOnline(true);
-      }
+      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Teacher));
+      setTeachers(items);
+      try { localStorage.setItem('sirna_teachers', JSON.stringify(items)); } catch {}
+      setNetworkOnline(true);
     }, handleSnapshotErr('teachers'));
 
     const unsubAssignments = onSnapshot(collection(db, 'teachingAssignments'), (snap) => {
-      if (!snap.empty) {
-        const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as TeachingAssignment));
-        setTeachingAssignments(items);
-        setNetworkOnline(true);
-      }
+      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as TeachingAssignment));
+      setTeachingAssignments(items);
+      try { localStorage.setItem('sirna_assignments', JSON.stringify(items)); } catch {}
+      setNetworkOnline(true);
     }, handleSnapshotErr('teachingAssignments'));
 
     const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-      if (!snap.empty) {
-        const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Student));
-        setStudents(items);
-        setNetworkOnline(true);
-      }
+      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Student));
+      setStudents(items);
+      try { localStorage.setItem('sirna_students', JSON.stringify(items)); } catch {}
+      setNetworkOnline(true);
     }, handleSnapshotErr('students'));
 
     const unsubGrades = onSnapshot(collection(db, 'gradeEntries'), (snap) => {
-      if (!snap.empty) {
-        const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as GradeEntry));
-        setGradeEntries(items);
-        setNetworkOnline(true);
-      }
+      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as GradeEntry));
+      setGradeEntries(items);
+      try { localStorage.setItem('sirna_grades', JSON.stringify(items)); } catch {}
+      setNetworkOnline(true);
     }, handleSnapshotErr('gradeEntries'));
 
     const unsubSummaries = onSnapshot(collection(db, 'academicSummaries'), (snap) => {
-      if (!snap.empty) {
-        const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicSummary));
-        setAcademicSummaries(items);
-        setNetworkOnline(true);
-      }
+      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicSummary));
+      setAcademicSummaries(items);
+      try { localStorage.setItem('sirna_summaries', JSON.stringify(items)); } catch {}
+      setNetworkOnline(true);
     }, handleSnapshotErr('academicSummaries'));
 
     const unsubAudit = onSnapshot(collection(db, 'auditLogs'), (snap) => {
@@ -603,16 +622,31 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Verification process (by Admin / Kurikulum)
-  const verifyAssignmentGrades = async (assignmentId: string, approve: boolean, revisionNote = '') => {
+  const verifyAssignmentGrades = async (
+    assignmentId: string,
+    approve: boolean,
+    revisionNote = '',
+    fallbackTarget?: { classId: string; subjectId: string; semesterId: string; className?: string; subjectName?: string }
+  ) => {
     setIsSyncing(true);
     const assignment = teachingAssignments.find(a => a.id === assignmentId);
-    if (!assignment) return;
+    const targetClassId = assignment?.classId || fallbackTarget?.classId;
+    const targetSubjectId = assignment?.subjectId || fallbackTarget?.subjectId;
+    const targetSemesterId = assignment?.semesterId || fallbackTarget?.semesterId || selectedSemesterId;
+    const targetClassName = assignment?.className || fallbackTarget?.className || 'Kelas';
+    const targetSubjectName = assignment?.subjectName || fallbackTarget?.subjectName || 'Mapel';
+
+    if (!targetClassId || !targetSubjectId) {
+      setIsSyncing(false);
+      return;
+    }
 
     try {
       const targetGrades = gradeEntries.filter(
-        g => g.classId === assignment.classId &&
-             g.subjectId === assignment.subjectId &&
-             g.semesterId === assignment.semesterId
+        g =>
+          g.classId === targetClassId &&
+          g.subjectId === targetSubjectId &&
+          g.semesterId === targetSemesterId
       );
 
       const batch = writeBatch(db);
@@ -641,14 +675,15 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const mergedList = Array.from(mergedMap.values());
 
       setGradeEntries(mergedList);
+      try { localStorage.setItem('sirna_grades', JSON.stringify(mergedList)); } catch {}
 
       if (approve) {
-        await recalculateAveragesAndRanks(assignment.semesterId, mergedList);
+        await recalculateAveragesAndRanks(targetSemesterId, mergedList);
       }
 
       await logAuditAction(
         approve ? 'VERIFY_APPROVE_GRADES' : 'VERIFY_REQUEST_REVISION',
-        `${assignment.className} - ${assignment.subjectName}`,
+        `${targetClassName} - ${targetSubjectName}`,
         approve
           ? `Verifikasi nilai disetujui untuk ${updated.length} siswa`
           : `Permintaan revisi: ${revisionNote}`
@@ -662,6 +697,171 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const finalizeAssignmentGrades = async (assignmentId: string) => {
     await verifyAssignmentGrades(assignmentId, true);
+  };
+
+  // Delete a verification submission row (its grade entries and optionally its teachingAssignment)
+  const deleteVerificationSubmission = async (params: {
+    assignmentId?: string;
+    classId: string;
+    subjectId: string;
+    semesterId: string;
+    deleteAssignmentToo?: boolean;
+  }) => {
+    const { assignmentId, classId, subjectId, semesterId, deleteAssignmentToo = false } = params;
+    setIsSyncing(true);
+    try {
+      const gradesToDelete = gradeEntries.filter(
+        g => g.classId === classId && g.subjectId === subjectId && g.semesterId === semesterId
+      );
+
+      const chunkSize = 400;
+      for (let i = 0; i < gradesToDelete.length; i += chunkSize) {
+        const chunk = gradesToDelete.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        chunk.forEach(g => batch.delete(doc(db, 'gradeEntries', g.id)));
+        await batch.commit();
+      }
+
+      if (deleteAssignmentToo && assignmentId && !assignmentId.startsWith('virtual_')) {
+        await deleteDoc(doc(db, 'teachingAssignments', assignmentId));
+        const nextAssignments = teachingAssignments.filter(a => a.id !== assignmentId);
+        setTeachingAssignments(nextAssignments);
+        try { localStorage.setItem('sirna_assignments', JSON.stringify(nextAssignments)); } catch {}
+      }
+
+      const deletedIds = new Set(gradesToDelete.map(g => g.id));
+      const remainingGrades = gradeEntries.filter(g => !deletedIds.has(g.id));
+      setGradeEntries(remainingGrades);
+      try { localStorage.setItem('sirna_grades', JSON.stringify(remainingGrades)); } catch {}
+
+      await recalculateAveragesAndRanks(semesterId, remainingGrades);
+      await logAuditAction(
+        'DELETE_VERIFICATION_SUBMISSION',
+        `${classId} - ${subjectId}`,
+        `Menghapus ${gradesToDelete.length} data nilai${deleteAssignmentToo ? ' beserta data penugasan' : ''}`
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'delete_verification_submission');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const deleteSingleGradeEntry = async (gradeEntryId: string) => {
+    setIsSyncing(true);
+    try {
+      const target = gradeEntries.find(g => g.id === gradeEntryId);
+      await deleteDoc(doc(db, 'gradeEntries', gradeEntryId));
+      const remaining = gradeEntries.filter(g => g.id !== gradeEntryId);
+      setGradeEntries(remaining);
+      try { localStorage.setItem('sirna_grades', JSON.stringify(remaining)); } catch {}
+      if (target?.semesterId) {
+        await recalculateAveragesAndRanks(target.semesterId, remaining);
+      }
+      await logAuditAction(
+        'DELETE_GRADE_ENTRY',
+        target?.studentName || gradeEntryId,
+        `Menghapus nilai mata pelajaran ${target?.subjectName || ''}`
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'delete_single_grade');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Clear built-in/default sample submissions or all submissions in the selected semester
+  const clearVerificationSubmissions = async (params: {
+    semesterId: string;
+    mode: 'default_only' | 'all_submissions';
+  }): Promise<number> => {
+    const { semesterId, mode } = params;
+    setIsSyncing(true);
+    try {
+      const defaultAssignmentIds = new Set(defaultTeachingAssignments.map(a => a.id));
+      const defaultStudentIds = new Set(defaultStudents.map(s => s.id));
+      const defaultTeacherIds = new Set(defaultTeachers.map(t => t.id));
+      const activeStudentIds = new Set(students.map(s => s.id));
+      const activeSubjectIds = new Set(subjects.map(s => s.id));
+      const activeClassIds = new Set(classes.map(c => c.id));
+
+      const assignmentsToRemove = teachingAssignments.filter(a => {
+        if (mode === 'all_submissions') {
+          return a.semesterId === semesterId || !a.semesterId;
+        }
+        return (
+          defaultAssignmentIds.has(a.id) ||
+          defaultTeacherIds.has(a.teacherId) ||
+          !activeClassIds.has(a.classId) ||
+          !activeSubjectIds.has(a.subjectId)
+        );
+      });
+
+      const gradesToRemove = gradeEntries.filter(g => {
+        if (mode === 'all_submissions') {
+          return g.semesterId === semesterId;
+        }
+        return (
+          defaultStudentIds.has(g.studentId) ||
+          defaultTeacherIds.has(g.teacherId) ||
+          !activeStudentIds.has(g.studentId) ||
+          !activeSubjectIds.has(g.subjectId) ||
+          !activeClassIds.has(g.classId)
+        );
+      });
+
+      const summariesToRemove = academicSummaries.filter(s => {
+        if (mode === 'all_submissions') {
+          return s.semesterId === semesterId;
+        }
+        return defaultStudentIds.has(s.studentId) || !activeStudentIds.has(s.studentId);
+      });
+
+      const ops: { col: string; id: string }[] = [
+        ...assignmentsToRemove.map(a => ({ col: 'teachingAssignments', id: a.id })),
+        ...gradesToRemove.map(g => ({ col: 'gradeEntries', id: g.id })),
+        ...summariesToRemove.map(s => ({ col: 'academicSummaries', id: s.id })),
+      ];
+
+      const chunkSize = 400;
+      for (let i = 0; i < ops.length; i += chunkSize) {
+        const chunk = ops.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        chunk.forEach(op => batch.delete(doc(db, op.col, op.id)));
+        await batch.commit();
+      }
+
+      const remAssignIds = new Set(assignmentsToRemove.map(a => a.id));
+      const remGradeIds = new Set(gradesToRemove.map(g => g.id));
+      const remSumIds = new Set(summariesToRemove.map(s => s.id));
+
+      const nextAssignments = teachingAssignments.filter(a => !remAssignIds.has(a.id));
+      const nextGrades = gradeEntries.filter(g => !remGradeIds.has(g.id));
+      const nextSummaries = academicSummaries.filter(s => !remSumIds.has(s.id));
+
+      setTeachingAssignments(nextAssignments);
+      setGradeEntries(nextGrades);
+      setAcademicSummaries(nextSummaries);
+
+      try {
+        localStorage.setItem('sirna_assignments', JSON.stringify(nextAssignments));
+        localStorage.setItem('sirna_grades', JSON.stringify(nextGrades));
+        localStorage.setItem('sirna_summaries', JSON.stringify(nextSummaries));
+      } catch {}
+
+      await logAuditAction(
+        'CLEAR_VERIFICATION_DATA',
+        mode === 'default_only' ? 'Data Bawaan / Sampel' : `Seluruh Pengajuan (${semesterId})`,
+        `Menghapus ${assignmentsToRemove.length} penugasan dan ${gradesToRemove.length} entri nilai`
+      );
+
+      return assignmentsToRemove.length + gradesToRemove.length;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'clear_verification_submissions');
+      return 0;
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // Recalculates averages and competition ranks (Bagian 8 & 9)
@@ -694,18 +894,29 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     for (const student of students) {
       if (student.status !== 'aktif') continue;
 
-      const studentClass = classes.find(c => c.id === student.currentClassId);
       const rawStudentGrades = studentGradesMap.get(student.id) || [];
 
-      // Filter mata pelajaran yang memang dipelajari di kelas siswa tersebut
-      const classApplicableSubjectIds = new Set(
+      // Tentukan kelas yang relevan untuk perhitungan:
+      // Jika siswa memiliki nilai di kelas tertentu pada semester ini (misal nilai Kelas X saat siswa sudah naik ke Kelas XI),
+      // gunakan kelas pada entri nilai terbaru di semester ini agar tidak tertimpa oleh kelas baru yang belum memiliki nilai.
+      const hasCurrentClassGrades = rawStudentGrades.some(g => g.classId === student.currentClassId);
+      const effectiveClassId = hasCurrentClassGrades
+        ? student.currentClassId
+        : rawStudentGrades[0]?.classId || student.currentClassId;
+      const studentClass = classes.find(c => c.id === effectiveClassId) || classes.find(c => c.id === student.currentClassId);
+
+      // Filter nilai pada kelas efektif tersebut
+      const classFilteredGrades = rawStudentGrades.filter(g => g.classId === effectiveClassId);
+
+      // Filter mata pelajaran yang memang dipelajari oleh siswa tersebut (mendukung Mapel Peminatan per Nama Siswa)
+      const studentApplicableSubjectIds = new Set(
         activeSubjectsList
-          .filter(s => isSubjectApplicableToClass(s, studentClass))
+          .filter(s => isSubjectApplicableToStudent(s, student.id, studentClass))
           .map(s => s.id)
       );
 
-      // Hanya perhitungkan nilai mata pelajaran yang berlaku pada kelas siswa tersebut
-      const studentGrades = rawStudentGrades.filter(g => classApplicableSubjectIds.has(g.subjectId));
+      // Hanya perhitungkan nilai mata pelajaran yang berlaku pada siswa tersebut
+      const studentGrades = classFilteredGrades.filter(g => studentApplicableSubjectIds.has(g.subjectId));
 
       // Perhitungan Rata-rata semester otomatis (Bagian 8):
       // Rata-rata = jumlah nilai akhir mata pelajaran yang diperhitungkan / jumlah mata pelajaran yang diperhitungkan
@@ -718,9 +929,11 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const completedCount = validCompletedScores.length;
       const averageScore = completedCount > 0 ? Math.round((totalScore / completedCount) * 100) / 100 : 0;
 
-      // Cek kelengkapan mata pelajaran wajib yang memang dipelajari di kelas siswa tersebut
-      const classMandatorySubjects = mandatorySubjects.filter(s => isSubjectApplicableToClass(s, studentClass));
-      const classMandatoryIds = new Set(classMandatorySubjects.map(s => s.id));
+      // Cek kelengkapan mata pelajaran wajib yang memang dipelajari oleh siswa tersebut
+      const studentMandatorySubjects = mandatorySubjects.filter(s =>
+        isSubjectApplicableToStudent(s, student.id, studentClass)
+      );
+      const classMandatoryIds = new Set(studentMandatorySubjects.map(s => s.id));
       const completedMandatoryIds = new Set(
         studentGrades.filter(g => classMandatoryIds.has(g.subjectId)).map(g => g.subjectId)
       );
@@ -735,8 +948,8 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         studentNis: student.nis,
         studentNisn: student.nisn,
         studentName: student.name,
-        classId: student.currentClassId,
-        className: studentClass?.name || student.currentClassName || 'Kelas',
+        classId: studentClass?.id || effectiveClassId,
+        className: studentClass?.name || classFilteredGrades[0]?.className || student.currentClassName || 'Kelas',
         gradeLevel: studentClass?.gradeLevel || '10',
         academicYearId: selectedYearId,
         semesterId,
@@ -1026,6 +1239,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const cleanSubj = sanitizeFirestoreData({
       ...subj,
       targetClassIds: Array.isArray(subj.targetClassIds) ? subj.targetClassIds : [],
+      targetStudentIds: Array.isArray(subj.targetStudentIds) ? subj.targetStudentIds : [],
       sortOrder:
         typeof subj.sortOrder === 'number' && !isNaN(subj.sortOrder)
           ? subj.sortOrder
@@ -1380,37 +1594,51 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const updatedStudents = students.map(s => {
         if (studentIds.includes(s.id)) {
-          const history = s.classHistory || [];
-          const isAlreadyRecorded = history.some(h => h.classId === s.currentClassId && h.semesterId === targetSemesterId);
-          const newHistory = isAlreadyRecorded
-            ? history
-            : [
-                ...history,
-                {
-                  academicYearId: targetAcademicYearId,
-                  semesterId: targetSemesterId,
-                  classId: s.currentClassId,
-                  className: s.currentClassName,
-                },
-              ];
+          const history = [...(s.classHistory || [])];
 
-          return {
+          // Pastikan kelas asal (misal X-A) tercatat di riwayat untuk seluruh semester di mana siswa punya nilai di kelas asal
+          const semestersWithOldGrades = new Set<string>(
+            gradeEntries
+              .filter(g => g.studentId === s.id && g.classId === s.currentClassId)
+              .map(g => g.semesterId)
+          );
+          if (semestersWithOldGrades.size === 0) {
+            semestersWithOldGrades.add(targetSemesterId);
+          }
+
+          semestersWithOldGrades.forEach(semId => {
+            const exists = history.some(
+              h => h.classId === s.currentClassId && h.semesterId === semId
+            );
+            if (!exists && s.currentClassId) {
+              const semObj = semesters.find(sm => sm.id === semId);
+              history.push({
+                academicYearId: semObj?.academicYearId || targetAcademicYearId,
+                semesterId: semId,
+                classId: s.currentClassId,
+                className: s.currentClassName,
+              });
+            }
+          });
+
+          return sanitizeFirestoreData({
             ...s,
             currentClassId: targetClassId,
             currentClassName: targetClassName,
-            classHistory: newHistory,
-          };
+            classHistory: history,
+          });
         }
         return s;
       });
 
       setStudents(updatedStudents);
+      try { localStorage.setItem('sirna_students', JSON.stringify(updatedStudents)); } catch {}
 
       const batch = writeBatch(db);
       updatedStudents
         .filter(s => studentIds.includes(s.id))
         .forEach(s => {
-          batch.set(doc(db, 'students', s.id), s);
+          batch.set(doc(db, 'students', s.id), sanitizeFirestoreData(s));
         });
 
       await batch.commit();
@@ -1422,6 +1650,47 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       );
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, 'students');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Kembalikan siswa ke kelas sebelumnya (jika terjadi kesalahan naik kelas)
+  const revertStudentPromotion = async (studentIds: string[], targetOldClassId: string) => {
+    setIsSyncing(true);
+    try {
+      const oldClass = classes.find(c => c.id === targetOldClassId);
+      if (!oldClass) return;
+
+      const updatedStudents = students.map(s => {
+        if (studentIds.includes(s.id)) {
+          return sanitizeFirestoreData({
+            ...s,
+            currentClassId: oldClass.id,
+            currentClassName: oldClass.name,
+          });
+        }
+        return s;
+      });
+
+      setStudents(updatedStudents);
+      try { localStorage.setItem('sirna_students', JSON.stringify(updatedStudents)); } catch {}
+
+      const batch = writeBatch(db);
+      updatedStudents
+        .filter(s => studentIds.includes(s.id))
+        .forEach(s => {
+          batch.set(doc(db, 'students', s.id), sanitizeFirestoreData(s));
+        });
+      await batch.commit();
+
+      await logAuditAction(
+        'REVERT_PROMOTION',
+        oldClass.name,
+        `Mengembalikan ${studentIds.length} peserta didik ke kelas ${oldClass.name}`
+      );
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, 'students_revert');
     } finally {
       setIsSyncing(false);
     }
@@ -1453,6 +1722,9 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         saveGradeEntries,
         verifyAssignmentGrades,
         finalizeAssignmentGrades,
+        deleteVerificationSubmission,
+        deleteSingleGradeEntry,
+        clearVerificationSubmissions,
         publishSemesterGrades,
         recalculateAveragesAndRanks,
         saveManualRanks,
@@ -1481,6 +1753,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         pullDataFromCloudNow,
         testCloudConnection,
         promoteStudentsBatch,
+        revertStudentPromotion,
       }}
     >
       {children}

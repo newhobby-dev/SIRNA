@@ -14,13 +14,20 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useAcademic } from '../../context/AcademicContext';
 import { TeachingAssignment, Student, GradeEntry, GradeStatus } from '../../types';
-import { sortStudentsAlphabetically, formatIndonesianNumber } from '../../lib/utils';
+import {
+  sortStudentsAlphabetically,
+  formatIndonesianNumber,
+  isSubjectApplicableToStudent,
+  getClassStudentsWithHistory,
+} from '../../lib/utils';
 
 export const ManualGradeInput: React.FC = () => {
   const { profile } = useAuth();
   const {
     teachingAssignments,
     students,
+    classes,
+    subjects,
     gradeEntries,
     selectedSemesterId,
     currentSemester,
@@ -51,14 +58,22 @@ export const ManualGradeInput: React.FC = () => {
 
   const selectedAssignment = myAssignments.find(a => a.id === selectedAssignmentId);
 
-  // Active students in the selected class
+  // Active students in the selected class (filtered by Peminatan student assignment if configured)
   const classStudents = React.useMemo(() => {
     if (!selectedAssignment) return [];
-    const list = students.filter(
-      s => s.currentClassId === selectedAssignment.classId && s.status === 'aktif'
-    );
-    return sortStudentsAlphabetically(list);
-  }, [students, selectedAssignment]);
+    const clsObj = classes.find(c => c.id === selectedAssignment.classId);
+    const subjObj = subjects.find(s => s.id === selectedAssignment.subjectId);
+    const baseList = getClassStudentsWithHistory({
+      classId: selectedAssignment.classId,
+      semesterId: selectedSemesterId,
+      students,
+      gradeEntries,
+    });
+    const filteredBySubject = subjObj
+      ? baseList.filter(st => isSubjectApplicableToStudent(subjObj, st.id, clsObj))
+      : baseList;
+    return sortStudentsAlphabetically(filteredBySubject);
+  }, [students, classes, subjects, gradeEntries, selectedAssignment, selectedSemesterId]);
 
   // Load existing grade entries for this assignment
   useEffect(() => {

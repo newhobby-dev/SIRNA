@@ -33,6 +33,8 @@ import {
   parseAllSubjectsExcelFile,
   AllSubjectsParseResult,
   isSubjectApplicableToClass,
+  isSubjectApplicableToStudent,
+  getClassStudentsWithHistory,
   sortSubjects,
 } from '../../lib/utils';
 import { GradeEntry, GradeStatus, Subject } from '../../types';
@@ -91,24 +93,34 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
   const currentClass = classes.find(c => c.id === selectedClassId);
   const activeSemester = semesters.find(s => s.id === selectedSemesterId) || currentSemester;
 
-  // Active students in the chosen class, sorted alphabetically
+  // Students in the chosen class (including historical students who were in this class before promotion), sorted alphabetically
+  const rawClassStudents = useMemo(() => {
+    return getClassStudentsWithHistory({
+      classId: selectedClassId,
+      semesterId: selectedSemesterId,
+      students,
+      gradeEntries,
+    });
+  }, [students, gradeEntries, selectedClassId, selectedSemesterId]);
+
   const classStudents = useMemo(() => {
-    const list = students.filter(s => s.currentClassId === selectedClassId && s.status === 'aktif');
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       return sortStudentsAlphabetically(
-        list.filter(s => s.name.toLowerCase().includes(q) || s.nis.includes(q) || s.nisn.includes(q))
+        rawClassStudents.filter(
+          s => s.name.toLowerCase().includes(q) || s.nis.includes(q) || s.nisn.includes(q)
+        )
       );
     }
-    return sortStudentsAlphabetically(list);
-  }, [students, selectedClassId, searchQuery]);
+    return rawClassStudents;
+  }, [rawClassStudents, searchQuery]);
 
-  // Subjects strictly configured for the currently selected class
+  // Subjects strictly configured for the currently selected class (including Peminatan taken by students in this class)
   const applicableClassSubjects = useMemo(() => {
     const allActive = sortSubjects(subjects.filter(s => s.isActive));
     if (!currentClass) return allActive;
-    return allActive.filter(s => isSubjectApplicableToClass(s, currentClass));
-  }, [subjects, currentClass]);
+    return allActive.filter(s => isSubjectApplicableToClass(s, currentClass, rawClassStudents));
+  }, [subjects, currentClass, rawClassStudents]);
 
   // Displayed subjects based on scope filter and configured sortOrder
   const displayedSubjects = useMemo(() => {
@@ -174,42 +186,61 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     setTimeout(() => setStatusMessage(null), 5000);
   };
 
-  // All grades map for the selected semester across the entire school: `${studentId}_${subjectId}` -> score
+  // All grades map for the selected semester scoped by classId: `${classId}_${studentId}_${subjectId}` -> score
+  // And fallback `${studentId}_${subjectId}` only for same-class lookups
+  const classScopedGradesMap = useMemo(() => {
+    const map = new Map<string, number>();
+    gradeEntries
+      .filter(g => g.semesterId === selectedSemesterId)
+      .forEach(g => {
+        if (g.finalScore !== null && g.finalScore !== undefined) {
+          map.set(`${g.classId}_${g.studentId}_${g.subjectId}`, g.finalScore);
+        }
+      });
+    return map;
+  }, [gradeEntries, selectedSemesterId]);
+
+  // All grades map for template prefill (scoped to selected class when downloading for selected class)
   const allSemesterGradesMap = useMemo(() => {
     const map = new Map<string, number>();
     gradeEntries
       .filter(g => g.semesterId === selectedSemesterId)
       .forEach(g => {
         if (g.finalScore !== null && g.finalScore !== undefined) {
-          map.set(`${g.studentId}_${g.subjectId}`, g.finalScore);
+          // Only set if it matches the student's class or if not already set for selectedClassId
+          if (g.classId === selectedClassId || !map.has(`${g.studentId}_${g.subjectId}`)) {
+            map.set(`${g.studentId}_${g.subjectId}`, g.finalScore);
+          }
         }
       });
     return map;
-  }, [gradeEntries, selectedSemesterId]);
+  }, [gradeEntries, selectedSemesterId, selectedClassId]);
 
-  // Grades map for this class & semester
+  // Grades map STRICTLY for the currently selected class & semester (prevents Class X grades from bleeding into Class XI!)
   const gradesMap = useMemo(() => {
     const map = new Map<string, number>();
     gradeEntries
-      .filter(g => (g.classId === selectedClassId || allSemesterGradesMap.has(`${g.studentId}_${g.subjectId}`)) && g.semesterId === selectedSemesterId)
+      .filter(g => g.classId === selectedClassId && g.semesterId === selectedSemesterId)
       .forEach(g => {
         if (g.finalScore !== null && g.finalScore !== undefined) {
           map.set(`${g.studentId}_${g.subjectId}`, g.finalScore);
         }
       });
     return map;
-  }, [gradeEntries, selectedClassId, selectedSemesterId, allSemesterGradesMap]);
+  }, [gradeEntries, selectedClassId, selectedSemesterId]);
 
-  // Summaries map for this semester
+  // Summaries map for this semester (preferring matching classId)
   const summaryMap = useMemo(() => {
     const map = new Map<string, any>();
     academicSummaries
       .filter(s => s.semesterId === selectedSemesterId)
       .forEach(s => {
-        map.set(s.studentId, s);
+        if (s.classId === selectedClassId || !map.has(s.studentId)) {
+          map.set(s.studentId, s);
+        }
       });
     return map;
-  }, [academicSummaries, selectedSemesterId]);
+  }, [academicSummaries, selectedSemesterId, selectedClassId]);
 
   // Sync editedCells when entering edit mode or changing class/semester
   useEffect(() => {
@@ -231,32 +262,36 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
     window.print();
   };
 
-  // Helper to compute live average, total, and completeness for a student based on their class's applicable subjects
+  // Helper to compute live average, total, and completeness for a student in a specific class (strictly scoped by class & student Peminatan)
   const getStudentClassStats = (studentId: string, cls?: typeof currentClass) => {
     const targetCls = cls || currentClass;
     const allActive = sortSubjects(subjects.filter(s => s.isActive));
-    const classApplicable = targetCls
-      ? allActive.filter(s => isSubjectApplicableToClass(s, targetCls))
+    const studentApplicable = targetCls
+      ? allActive.filter(s => isSubjectApplicableToStudent(s, studentId, targetCls))
       : allActive;
-    const mandatoryForClass = classApplicable.filter(s => s.isMandatory);
+    const mandatoryForStudent = studentApplicable.filter(
+      s => s.isMandatory || (s.targetStudentIds && s.targetStudentIds.includes(studentId))
+    );
 
     let totalScore = 0;
     let completedCount = 0;
     let mandatoryCompleted = 0;
 
-    classApplicable.forEach(sub => {
-      const val = allSemesterGradesMap.get(`${studentId}_${sub.id}`);
+    studentApplicable.forEach(sub => {
+      const val = targetCls
+        ? classScopedGradesMap.get(`${targetCls.id}_${studentId}_${sub.id}`)
+        : gradesMap.get(`${studentId}_${sub.id}`);
       if (val !== undefined && val !== null && !isNaN(val)) {
         totalScore += val;
         completedCount++;
-        if (sub.isMandatory) {
+        if (sub.isMandatory || (sub.targetStudentIds && sub.targetStudentIds.includes(studentId))) {
           mandatoryCompleted++;
         }
       }
     });
 
     const averageScore = completedCount > 0 ? Math.round((totalScore / completedCount) * 100) / 100 : 0;
-    const isComplete = mandatoryForClass.length > 0 && mandatoryCompleted >= mandatoryForClass.length;
+    const isComplete = mandatoryForStudent.length > 0 && mandatoryCompleted >= mandatoryForStudent.length;
 
     return {
       totalScore,
@@ -282,8 +317,9 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
       };
 
       displayedSubjects.forEach(sub => {
+        const takesSub = isSubjectApplicableToStudent(sub, st.id, currentClass);
         const score = gradesMap.get(`${st.id}_${sub.id}`);
-        row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : '';
+        row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : takesSub ? '' : '-';
       });
 
       row['Total Nilai'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.totalScore) : '-';
@@ -325,9 +361,12 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
       };
 
       allActiveSubjects.forEach(sub => {
-        const isApplicable = isSubjectApplicableToClass(sub, stClass);
-        const score = isApplicable ? allSemesterGradesMap.get(`${st.id}_${sub.id}`) : undefined;
-        row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : '';
+        const isApplicable = isSubjectApplicableToStudent(sub, st.id, stClass);
+        const score =
+          isApplicable && stClass
+            ? classScopedGradesMap.get(`${stClass.id}_${st.id}_${sub.id}`)
+            : undefined;
+        row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : isApplicable ? '' : '-';
       });
 
       row['Total Nilai'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.totalScore) : '-';
@@ -342,12 +381,17 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
 
     sheets.push({ sheetName: 'Semua_Kelas_Gabungan', data: masterRows });
 
-    // 2. Individual sheet per class (Strictly only subjects taught in that class)
+    // 2. Individual sheet per class (Strictly only subjects taught in that class, including historical students for that class)
     classes.forEach(cls => {
-      const clsStudents = sortStudentsAlphabetically(
-        students.filter(s => s.currentClassId === cls.id && s.status === 'aktif')
+      const clsStudents = getClassStudentsWithHistory({
+        classId: cls.id,
+        semesterId: selectedSemesterId,
+        students,
+        gradeEntries,
+      });
+      const subsToUse = allActiveSubjects.filter(sub =>
+        isSubjectApplicableToClass(sub, cls, clsStudents)
       );
-      const subsToUse = allActiveSubjects.filter(sub => isSubjectApplicableToClass(sub, cls));
 
       const clsRows = clsStudents.map((st, idx) => {
         const sum = summaryMap.get(st.id);
@@ -361,8 +405,9 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
         };
 
         subsToUse.forEach(sub => {
-          const score = allSemesterGradesMap.get(`${st.id}_${sub.id}`);
-          row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : '';
+          const takesSub = isSubjectApplicableToStudent(sub, st.id, cls);
+          const score = classScopedGradesMap.get(`${cls.id}_${st.id}_${sub.id}`);
+          row[`${sub.code} - ${sub.name}`] = score !== undefined ? score : takesSub ? '' : '-';
         });
 
         row['Total Nilai'] = stats.completedCount > 0 ? formatIndonesianNumber(stats.totalScore) : '-';
@@ -477,7 +522,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
 
     const allowedStudents =
       uploadTargetScope === 'selected_class' && currentClass
-        ? students.filter(s => s.currentClassId === currentClass.id && s.status === 'aktif')
+        ? rawClassStudents
         : students.filter(s => s.status === 'aktif');
 
     try {
@@ -513,9 +558,24 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
         const st = row.matchedStudent;
         if (!st) return;
 
-        const stClass = classes.find(c => c.id === st.currentClassId);
-        const classId = stClass?.id || st.currentClassId || selectedClassId;
-        const className = stClass?.name || st.currentClassName || currentClass?.name || 'Kelas';
+        // Match class from Excel row/sheet if available, or selectedClassId if scope is selected_class
+        const rowClassStr = (row.className || row.sheetName || '').trim().toLowerCase();
+        const matchedExcelClass = rowClassStr
+          ? classes.find(
+              c =>
+                c.name.toLowerCase() === rowClassStr ||
+                c.code.toLowerCase() === rowClassStr ||
+                `kelas ${c.code.toLowerCase()}` === rowClassStr
+            )
+          : undefined;
+
+        const targetCls =
+          uploadTargetScope === 'selected_class' && currentClass
+            ? currentClass
+            : matchedExcelClass || classes.find(c => c.id === st.currentClassId);
+
+        const classId = targetCls?.id || st.currentClassId || selectedClassId;
+        const className = targetCls?.name || st.currentClassName || currentClass?.name || 'Kelas';
 
         Object.entries(row.scoresBySubjectId).forEach(([subjectId, score]) => {
           const sub = subjectsById.get(subjectId);
@@ -538,7 +598,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
             subjectName: sub.name,
             teacherId: assignment?.teacherId || 'admin',
             teacherName: assignment?.teacherName || 'Admin Sekolah',
-            academicYearId: activeSemester?.academicYearId || stClass?.academicYearId || '',
+            academicYearId: activeSemester?.academicYearId || targetCls?.academicYearId || '',
             semesterId: selectedSemesterId,
             finalScore: score,
             status: uploadStatusTarget,
@@ -1082,6 +1142,7 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
                   {classStudents.map((st, idx) => {
                     const sum = summaryMap.get(st.id);
                     const stats = getStudentClassStats(st.id, currentClass);
+                    const isPromotedHistorical = st.currentClassId !== selectedClassId;
                     return (
                       <tr key={st.id} className="hover:bg-slate-50/80 transition">
                         <td className="py-2 px-2 text-center font-mono text-slate-500 border-r border-slate-200">
@@ -1090,18 +1151,33 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
                         <td className="py-2 px-2 font-mono text-slate-700 border-r border-slate-200">
                           {st.nis}
                         </td>
-                        <td className="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200 truncate max-w-[180px]">
-                          {st.name}
+                        <td className="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200 max-w-[200px]">
+                          <div className="truncate">{st.name}</div>
+                          {isPromotedHistorical && (
+                            <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 no-print">
+                              Arsip {currentClass?.code} • Kini di {st.currentClassName}
+                            </span>
+                          )}
                         </td>
                         {displayedSubjects.map(sub => {
                           const cellKey = `${st.id}_${sub.id}`;
                           const score = gradesMap.get(cellKey);
+                          const takesSubject = isSubjectApplicableToStudent(sub, st.id, currentClass);
                           return (
                             <td
                               key={sub.id}
-                              className="py-1.5 px-1.5 text-center font-mono text-slate-800 border-r border-slate-200"
+                              className={`py-1.5 px-1.5 text-center font-mono border-r border-slate-200 ${
+                                !takesSubject ? 'bg-slate-50/80 text-slate-300' : 'text-slate-800'
+                              }`}
                             >
-                              {isEditingTable ? (
+                              {!takesSubject ? (
+                                <span
+                                  className="text-slate-300 text-[10px] select-none"
+                                  title="Peserta didik ini tidak mengambil mata pelajaran peminatan ini"
+                                >
+                                  -
+                                </span>
+                              ) : isEditingTable ? (
                                 <input
                                   type="number"
                                   min={schoolSettings.minScore}

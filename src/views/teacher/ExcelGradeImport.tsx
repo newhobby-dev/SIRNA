@@ -20,6 +20,8 @@ import {
   formatIndonesianNumber,
   exportExcelWorkbook,
   sortStudentsAlphabetically,
+  isSubjectApplicableToStudent,
+  getClassStudentsWithHistory,
 } from '../../lib/utils';
 import { GradeEntry } from '../../types';
 
@@ -28,6 +30,8 @@ export const ExcelGradeImport: React.FC = () => {
   const {
     teachingAssignments,
     students,
+    classes,
+    subjects,
     gradeEntries,
     selectedSemesterId,
     currentSemester,
@@ -58,10 +62,18 @@ export const ExcelGradeImport: React.FC = () => {
 
   const classStudents = React.useMemo(() => {
     if (!selectedAssignment) return [];
-    return students.filter(
-      s => s.currentClassId === selectedAssignment.classId && s.status === 'aktif'
-    );
-  }, [students, selectedAssignment]);
+    const clsObj = classes.find(c => c.id === selectedAssignment.classId);
+    const subjObj = subjects.find(s => s.id === selectedAssignment.subjectId);
+    const baseList = getClassStudentsWithHistory({
+      classId: selectedAssignment.classId,
+      semesterId: selectedSemesterId,
+      students,
+      gradeEntries,
+    });
+    return subjObj
+      ? baseList.filter(st => isSubjectApplicableToStudent(subjObj, st.id, clsObj))
+      : baseList;
+  }, [students, classes, subjects, gradeEntries, selectedAssignment, selectedSemesterId]);
 
   // Existing grades map to show comparison (old vs new)
   const existingGradesMap = React.useMemo(() => {
