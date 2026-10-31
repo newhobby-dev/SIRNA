@@ -580,6 +580,46 @@ export function isSubjectApplicableToStudent(
   return isSubjectApplicableToClass(subject, cls);
 }
 
+export interface PeriodStudent extends Student {
+  latestClassId?: string;
+  latestClassName?: string;
+  isHistoricalPeriodClass?: boolean;
+}
+
+function parsePeriodOrder(ayIdOrName?: string, semIdOrName?: string): {
+  yearNum: number;
+  semNum: number;
+  order: number;
+} {
+  const semStr = String(semIdOrName || '').toLowerCase();
+  const ayStr = String(ayIdOrName || '').toLowerCase();
+
+  let yearNum = 0;
+  const semYearMatch = semStr.match(/(20\d{2})/);
+  const ayYearMatch = ayStr.match(/(20\d{2})/);
+  if (semYearMatch) {
+    yearNum = parseInt(semYearMatch[1], 10);
+  } else if (ayYearMatch) {
+    yearNum = parseInt(ayYearMatch[1], 10);
+  }
+
+  let semNum = 1;
+  if (
+    semStr.endsWith('_2') ||
+    semStr.includes('genap') ||
+    semStr.includes('semester 2') ||
+    semStr.includes('sem 2')
+  ) {
+    semNum = 2;
+  }
+
+  return {
+    yearNum,
+    semNum,
+    order: yearNum > 0 ? yearNum * 10 + semNum : 0,
+  };
+}
+
 /**
  * Mengambil daftar peserta didik pada suatu Kelas/Rombel (termasuk siswa yang pernah berada di kelas tersebut
  * sebelum naik kelas / memiliki riwayat nilai di kelas tersebut), sehingga ketika siswa naik dari Kelas X ke XI,
@@ -595,23 +635,61 @@ export function getClassStudentsWithHistory(params: {
   if (!classId) return [];
 
   const studentIdsWithGradesInClass = new Set<string>();
+  const studentIdsWithGradesInOtherClassThisSem = new Set<string>();
+  const studentIdsWithGradesInClassOtherSem = new Set<string>();
+
   gradeEntries.forEach(g => {
-    if (g.classId === classId && (!semesterId || g.semesterId === semesterId)) {
-      studentIdsWithGradesInClass.add(g.studentId);
+    if (g.classId === classId) {
+      if (!semesterId || g.semesterId === semesterId) {
+        studentIdsWithGradesInClass.add(g.studentId);
+      } else {
+        studentIdsWithGradesInClassOtherSem.add(g.studentId);
+      }
+    } else if (semesterId && g.semesterId === semesterId) {
+      studentIdsWithGradesInOtherClassThisSem.add(g.studentId);
     }
   });
 
+  const hasDirectSemesterGradesInClass = studentIdsWithGradesInClass.size > 0;
+
   // Jika pada semester terpilih belum ditemukan entri tapi ada nilai kelas tersebut di semester lain, tetap kenali riwayat kelasnya
-  if (studentIdsWithGradesInClass.size === 0) {
-    gradeEntries.forEach(g => {
-      if (g.classId === classId) {
-        studentIdsWithGradesInClass.add(g.studentId);
+  if (!hasDirectSemesterGradesInClass) {
+    studentIdsWithGradesInClassOtherSem.forEach(id => {
+      // Jangan masukkan jika pada semester terpilih siswa tersebut jelas-jelas sedang memiliki nilai di kelas lain (misal sudah di XI)
+      if (!studentIdsWithGradesInOtherClassThisSem.has(id)) {
+        studentIdsWithGradesInClass.add(id);
       }
     });
   }
 
   const matched = students.filter(s => {
     if (s.status !== 'aktif') return false;
+
+    // 1. Jika siswa punya nilai langsung di kelas & semester ini -> pasti anggota kelas ini pada semester tersebut
+    if (hasDirectSemesterGradesInClass && studentIdsWithGradesInClass.has(s.id)) {
+      return true;
+    }
+
+    // 2. Jika pada semester terpilih siswa punya nilai di kelas LAIN (bukan kelas ini), maka pada semester ini ia berada di kelas lain tersebut
+    if (semesterId && studentIdsWithGradesInOtherClassThisSem.has(s.id)) {
+      return false;
+    }
+
+    // 3. Jika kelas & semester ini sudah punya daftar siswa bernilai sendiri, jangan campurkan angkatan dari semester/tahun lain yang tidak punya nilai di semester ini
+    if (hasDirectSemesterGradesInClass) {
+      const hasHistoryInThisSem =
+        Array.isArray(s.classHistory) &&
+        s.classHistory.some(h => h.classId === classId && h.semesterId === semesterId);
+      if (hasHistoryInThisSem) return true;
+      if (s.currentClassId === classId && !studentIdsWithGradesInClassOtherSem.has(s.id)) {
+        // Hanya sertakan siswa baru (yang belum punya nilai di semester manapun) jika bukan angkatan lama
+        const hasAnyGradesAnywhere = gradeEntries.some(g => g.studentId === s.id);
+        if (!hasAnyGradesAnywhere) return true;
+      }
+      return false;
+    }
+
+    // 4. Jika kelas ini belum punya nilai di semester terpilih:
     if (s.currentClassId === classId) return true;
     if (studentIdsWithGradesInClass.has(s.id)) return true;
     if (Array.isArray(s.classHistory) && s.classHistory.some(h => h.classId === classId)) {
@@ -622,6 +700,260 @@ export function getClassStudentsWithHistory(params: {
 
   return sortStudentsAlphabetically(matched);
 }
+
+/**
+ * Menyelesaikan daftar peserta didik beserta Kelas/Rombel mereka yang sesuai dengan Tahun Pelajaran & Semester yang dipilih.
+ * Memastikan Sub Menu Peserta Didik menampilkan daftar nama dan kelas yang 100% sinkron dengan Sub Menu Rekap & Unggah Nilai.
+ */
+export function getStudentsForPeriod(params: {
+  students: Student[];
+  classes: ClassRoom[];
+  semesters?: { id: string; academicYearId: string; semesterType?: string; name?: string }[];
+  gradeEntries: GradeEntry[];
+  academicYearId?: string;
+  semesterId?: string;
+}): PeriodStudent[] {
+  const {
+    students,
+    classes,
+    semesters = [],
+    gradeEntries,
+    academicYearId = '',
+    semesterId = '',
+  } = params;
+
+  if (!semesterId && !academicYearId) {
+    return students.map(s => ({
+      ...s,
+      latestClassId: s.currentClassId,
+      latestClassName: s.currentClassName,
+      isHistoricalPeriodClass: false,
+    }));
+  }
+
+  const classById = new Map<string, ClassRoom>();
+  classes.forEach(c => classById.set(c.id, c));
+
+  const semesterById = new Map<
+    string,
+    { id: string; academicYearId: string; semesterType?: string; name?: string }
+  >();
+  semesters.forEach(s => semesterById.set(s.id, s));
+
+  const targetSemObj = semesterById.get(semesterId);
+  const effectiveYearId = academicYearId || targetSemObj?.academicYearId || '';
+  const targetPeriod = parsePeriodOrder(
+    effectiveYearId,
+    targetSemObj ? `${semesterId} ${targetSemObj.name || ''} ${targetSemObj.semesterType || ''}` : semesterId
+  );
+
+  // Indeks semua gradeEntries per studentId serta per classId di semester/tahun terpilih
+  const entriesByStudent = new Map<string, GradeEntry[]>();
+  const classGradedStudentsInSem = new Map<string, Set<string>>();
+  const classGradedStudentsInYear = new Map<string, Set<string>>();
+
+  gradeEntries.forEach(g => {
+    const list = entriesByStudent.get(g.studentId) || [];
+    list.push(g);
+    entriesByStudent.set(g.studentId, list);
+
+    if (semesterId && g.semesterId === semesterId && g.classId) {
+      const set = classGradedStudentsInSem.get(g.classId) || new Set<string>();
+      set.add(g.studentId);
+      classGradedStudentsInSem.set(g.classId, set);
+    }
+
+    const entryYearId = g.academicYearId || semesterById.get(g.semesterId)?.academicYearId || '';
+    if (effectiveYearId && entryYearId === effectiveYearId && g.classId) {
+      const set = classGradedStudentsInYear.get(g.classId) || new Set<string>();
+      set.add(g.studentId);
+      classGradedStudentsInYear.set(g.classId, set);
+    }
+  });
+
+  const resolvedList: PeriodStudent[] = [];
+
+  for (const s of students) {
+    const studentEntries = entriesByStudent.get(s.id) || [];
+    let resolvedClassId = '';
+    let resolvedClassName = '';
+
+    // PRIORITAS 1: Nilai langsung pada semesterId terpilih (100% identik dengan Rekap & Unggah Nilai)
+    if (semesterId) {
+      const semEntries = studentEntries.filter(g => g.semesterId === semesterId && g.classId);
+      if (semEntries.length > 0) {
+        const weightByClass = new Map<string, { weight: number; className: string }>();
+        semEntries.forEach(g => {
+          const prev = weightByClass.get(g.classId) || { weight: 0, className: g.className };
+          const w = g.finalScore !== null && g.finalScore !== undefined ? 10 : 1;
+          weightByClass.set(g.classId, {
+            weight: prev.weight + w,
+            className: g.className || prev.className,
+          });
+        });
+        let bestClassId = '';
+        let bestWeight = -1;
+        let bestClassName = '';
+        weightByClass.forEach((val, cId) => {
+          if (val.weight > bestWeight) {
+            bestWeight = val.weight;
+            bestClassId = cId;
+            bestClassName = val.className;
+          }
+        });
+        if (bestClassId) {
+          resolvedClassId = bestClassId;
+          resolvedClassName = classById.get(bestClassId)?.name || bestClassName || s.currentClassName;
+        }
+      }
+    }
+
+    // PRIORITAS 2: Nilai pada Tahun Pelajaran yang sama (misal Semester Ganjil & Genap di Tahun Pelajaran yang sama)
+    if (!resolvedClassId && effectiveYearId) {
+      const sameYearEntries = studentEntries.filter(g => {
+        const gYearId = g.academicYearId || semesterById.get(g.semesterId)?.academicYearId || '';
+        return gYearId === effectiveYearId && g.classId;
+      });
+      if (sameYearEntries.length > 0) {
+        // Cek apakah ada classHistory eksplisit di semesterId terpilih yang mengarah ke currentClassId (kasus naik kelas di tengah tahun yang sama)
+        const explicitCurrentInSem =
+          Array.isArray(s.classHistory) &&
+          s.classHistory.some(
+            h => h.semesterId === semesterId && h.classId === s.currentClassId
+          ) &&
+          !s.classHistory.some(
+            h => h.semesterId === semesterId && h.classId !== s.currentClassId
+          );
+
+        if (!explicitCurrentInSem) {
+          const firstMatch = sameYearEntries[0];
+          resolvedClassId = firstMatch.classId;
+          resolvedClassName =
+            classById.get(firstMatch.classId)?.name || firstMatch.className || s.currentClassName;
+        }
+      }
+    }
+
+    // PRIORITAS 3: Catatan classHistory eksplisit pada semesterId atau academicYearId terpilih
+    if (!resolvedClassId && Array.isArray(s.classHistory) && s.classHistory.length > 0) {
+      const semMatches = semesterId
+        ? s.classHistory.filter(h => h.semesterId === semesterId && h.classId)
+        : [];
+      if (semMatches.length > 0) {
+        const chosen = semMatches[semMatches.length - 1];
+        resolvedClassId = chosen.classId;
+        resolvedClassName =
+          classById.get(chosen.classId)?.name || chosen.className || s.currentClassName;
+      } else if (effectiveYearId) {
+        const yearMatches = s.classHistory.filter(
+          h => h.academicYearId === effectiveYearId && h.classId
+        );
+        if (yearMatches.length > 0) {
+          const chosen = yearMatches[yearMatches.length - 1];
+          resolvedClassId = chosen.classId;
+          resolvedClassName =
+            classById.get(chosen.classId)?.name || chosen.className || s.currentClassName;
+        }
+      }
+    }
+
+    // PRIORITAS 4: Perbandingan Linimasa (Timeline) terhadap Riwayat Kelas Sebelum Naik Kelas
+    if (!resolvedClassId) {
+      const historicalRecords: {
+        classId: string;
+        className: string;
+        yearNum: number;
+        order: number;
+      }[] = [];
+
+      studentEntries.forEach(g => {
+        if (g.classId && g.classId !== s.currentClassId) {
+          const semObj = semesterById.get(g.semesterId);
+          const p = parsePeriodOrder(
+            g.academicYearId || semObj?.academicYearId,
+            `${g.semesterId} ${semObj?.name || ''}`
+          );
+          historicalRecords.push({
+            classId: g.classId,
+            className: classById.get(g.classId)?.name || g.className,
+            yearNum: p.yearNum,
+            order: p.order,
+          });
+        }
+      });
+
+      if (Array.isArray(s.classHistory)) {
+        s.classHistory.forEach(h => {
+          if (h.classId && h.classId !== s.currentClassId) {
+            const semObj = semesterById.get(h.semesterId);
+            const p = parsePeriodOrder(
+              h.academicYearId || semObj?.academicYearId,
+              `${h.semesterId} ${semObj?.name || ''}`
+            );
+            historicalRecords.push({
+              classId: h.classId,
+              className: classById.get(h.classId)?.name || h.className,
+              yearNum: p.yearNum,
+              order: p.order,
+            });
+          }
+        });
+      }
+
+      if (historicalRecords.length > 0 && targetPeriod.order > 0) {
+        historicalRecords.sort((a, b) => b.order - a.order);
+        const latestOld = historicalRecords[0];
+        if (
+          latestOld.yearNum > 0 &&
+          (targetPeriod.yearNum < latestOld.yearNum ||
+            (targetPeriod.yearNum === latestOld.yearNum && targetPeriod.order <= latestOld.order))
+        ) {
+          resolvedClassId = latestOld.classId;
+          resolvedClassName = latestOld.className || s.currentClassName;
+        }
+      }
+    }
+
+    // PRIORITAS 5: Default ke kelas aktif saat ini (currentClassId)
+    if (!resolvedClassId) {
+      resolvedClassId = s.currentClassId;
+      resolvedClassName = classById.get(s.currentClassId)?.name || s.currentClassName;
+    }
+
+    // FILTER PEMISAHAN ANGKATAN ANTAR PERIODE:
+    // Jika kelas hasil resolusi (resolvedClassId) pada semester/tahun terpilih sudah memiliki daftar siswa yang bernilai (gradeEntries),
+    // sedangkan siswa ini sama sekali tidak memiliki nilai di semester/tahun terpilih namun memiliki nilai di tahun ajaran lain,
+    // maka siswa ini berasal dari angkatan periode lain.
+    const gradedSetSem = classGradedStudentsInSem.get(resolvedClassId);
+    const gradedSetYear = classGradedStudentsInYear.get(resolvedClassId);
+    const classHasGradedCohortInTargetPeriod =
+      (gradedSetSem && gradedSetSem.size > 0) || (gradedSetYear && gradedSetYear.size > 0);
+
+    if (classHasGradedCohortInTargetPeriod) {
+      const studentHasGradeInTargetSem = Boolean(gradedSetSem && gradedSetSem.has(s.id));
+      const studentHasGradeInTargetYear = Boolean(gradedSetYear && gradedSetYear.has(s.id));
+
+      if (!studentHasGradeInTargetSem && !studentHasGradeInTargetYear) {
+        const studentHasGradesInOtherPeriod = studentEntries.length > 0;
+        if (studentHasGradesInOtherPeriod) {
+          continue;
+        }
+      }
+    }
+
+    resolvedList.push({
+      ...s,
+      currentClassId: resolvedClassId,
+      currentClassName: resolvedClassName,
+      latestClassId: s.currentClassId,
+      latestClassName: s.currentClassName,
+      isHistoricalPeriodClass: resolvedClassId !== s.currentClassId,
+    });
+  }
+
+  return resolvedList;
+}
+
 
 /**
  * Unduh Template / Ekspor Excel Semua Mata Pelajaran (Untuk 1 Kelas atau Seluruh Kelas)

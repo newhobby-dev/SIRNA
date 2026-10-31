@@ -30,6 +30,9 @@ import {
   downloadStudentImportTemplate,
   parseStudentExcelFile,
   StudentExcelImportRow,
+  getStudentsForPeriod,
+  getClassStudentsWithHistory,
+  PeriodStudent,
 } from '../../lib/utils';
 
 export const StudentManagement: React.FC = () => {
@@ -37,18 +40,24 @@ export const StudentManagement: React.FC = () => {
     students,
     classes,
     gradeEntries,
+    academicYears,
+    semesters,
     saveStudent,
     saveStudentsBatch,
     deleteStudent,
     promoteStudentsBatch,
     revertStudentPromotion,
     selectedYearId,
+    setSelectedYearId,
     selectedSemesterId,
+    setSelectedSemesterId,
   } = useAcademic();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClassFilter, setSelectedClassFilter] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'ALL' | StudentStatus>('aktif');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [excelErrorMsg, setExcelErrorMsg] = useState<string | null>(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -94,6 +103,22 @@ export const StudentManagement: React.FC = () => {
   } | null>(null);
   const [isImportingExcel, setIsImportingExcel] = useState(false);
   const [excelImportSuccessMsg, setExcelImportSuccessMsg] = useState<string | null>(null);
+
+  // Semesters for the currently selected Academic Year (strictly 1 Ganjil & 1 Genap)
+  const yearSemesters = useMemo(() => {
+    const list = semesters.filter(s => s.academicYearId === selectedYearId);
+    const byType = new Map<string, (typeof semesters)[0]>();
+    list.forEach(s => {
+      const key = s.semesterType || s.id;
+      const existing = byType.get(key);
+      if (!existing || s.id === selectedSemesterId) {
+        byType.set(key, s);
+      }
+    });
+    return Array.from(byType.values()).sort((a, b) =>
+      String(a.semesterType).localeCompare(String(b.semesterType))
+    );
+  }, [semesters, selectedYearId, selectedSemesterId]);
 
   const handleSwitchPromotionMode = (mode: 'x_to_xi' | 'xi_to_xii') => {
     setPromotionMode(mode);
@@ -201,12 +226,44 @@ export const StudentManagement: React.FC = () => {
     }
   };
 
+  // Daftar siswa yang disinkronkan secara dinamis terhadap Tahun Pelajaran & Semester yang dipilih (100% sesuai Rekap & Unggah Nilai)
+  const periodStudents = useMemo<PeriodStudent[]>(() => {
+    return getStudentsForPeriod({
+      students,
+      classes,
+      semesters,
+      gradeEntries,
+      academicYearId: selectedYearId,
+      semesterId: selectedSemesterId,
+    });
+  }, [students, classes, semesters, gradeEntries, selectedYearId, selectedSemesterId]);
+
   // Sorted and filtered students: grouped by class and strictly alphabetical (A-Z) by name within each class
-  const filteredStudents = useMemo(() => {
-    let result = students;
+  const filteredStudents = useMemo<PeriodStudent[]>(() => {
+    let result: PeriodStudent[] = periodStudents;
 
     if (selectedClassFilter !== 'ALL') {
-      result = result.filter(s => s.currentClassId === selectedClassFilter);
+      const directMatches = periodStudents.filter(s => s.currentClassId === selectedClassFilter);
+      if (directMatches.length > 0) {
+        result = directMatches;
+      } else {
+        // Fallback ke riwayat kelas pada semester terpilih (identik dengan Rekap & Unggah Nilai saat memilih kelas historis)
+        const targetCls = classes.find(c => c.id === selectedClassFilter);
+        const historyMatches = getClassStudentsWithHistory({
+          classId: selectedClassFilter,
+          semesterId: selectedSemesterId,
+          students,
+          gradeEntries,
+        });
+        result = historyMatches.map(s => ({
+          ...s,
+          currentClassId: selectedClassFilter,
+          currentClassName: targetCls?.name || s.currentClassName,
+          latestClassId: s.currentClassId,
+          latestClassName: s.currentClassName,
+          isHistoricalPeriodClass: s.currentClassId !== selectedClassFilter,
+        }));
+      }
     }
 
     if (selectedStatusFilter !== 'ALL') {
@@ -227,7 +284,7 @@ export const StudentManagement: React.FC = () => {
       return sortStudentsByClassAndName(result, classes);
     }
     return sortStudentsAlphabetically(result);
-  }, [students, classes, selectedClassFilter, selectedStatusFilter, searchQuery]);
+  }, [periodStudents, students, classes, gradeEntries, selectedSemesterId, selectedClassFilter, selectedStatusFilter, searchQuery]);
 
   // Compute per-class alphabetical rank/order number (1, 2, 3... inside each class)
   const classSequenceMap = useMemo(() => {
@@ -251,16 +308,18 @@ export const StudentManagement: React.FC = () => {
       gender: 'L',
       cohort: '2026',
       status: 'aktif',
-      currentClassId: classes[0]?.id || '',
+      currentClassId: selectedClassFilter !== 'ALL' ? selectedClassFilter : classes[0]?.id || '',
     });
     setFormError('');
     setIsModalOpen(true);
   };
 
-  const handleOpenEdit = (student: Student) => {
-    setEditingStudent(student);
+  const handleOpenEdit = (student: PeriodStudent) => {
+    const rawStudent = students.find(s => s.id === student.id) || student;
+    setEditingStudent(rawStudent);
     setFormData({
-      ...student,
+      ...rawStudent,
+      currentClassId: student.currentClassId || rawStudent.currentClassId,
     });
     setFormError('');
     setIsModalOpen(true);
@@ -289,6 +348,26 @@ export const StudentManagement: React.FC = () => {
     }
 
     const selectedClass = classes.find(c => c.id === formData.currentClassId);
+    const targetClassIdToSave = selectedClass?.id || formData.currentClassId || '';
+    const targetClassNameToSave = selectedClass?.name || 'Belum Terdaftar';
+
+    const updatedHistory = [...(editingStudent?.classHistory || [])];
+    if (targetClassIdToSave) {
+      const existingIdx = updatedHistory.findIndex(
+        h => h.semesterId === selectedSemesterId
+      );
+      const historyItem = {
+        academicYearId: selectedYearId || selectedClass?.academicYearId || 'ay_2026_2027',
+        semesterId: selectedSemesterId || 'sem_2026_1',
+        classId: targetClassIdToSave,
+        className: targetClassNameToSave,
+      };
+      if (existingIdx >= 0) {
+        updatedHistory[existingIdx] = historyItem;
+      } else {
+        updatedHistory.push(historyItem);
+      }
+    }
 
     const studentToSave: Student = {
       id: editingStudent ? editingStudent.id : 'std_' + Date.now(),
@@ -298,35 +377,33 @@ export const StudentManagement: React.FC = () => {
       gender: formData.gender as 'L' | 'P',
       cohort: formData.cohort || '2026',
       status: (formData.status as StudentStatus) || 'aktif',
-      currentClassId: formData.currentClassId || '',
-      currentClassName: selectedClass?.name || 'Belum Terdaftar',
+      currentClassId: targetClassIdToSave,
+      currentClassName: targetClassNameToSave,
       portalPin: editingStudent?.portalPin || '',
-      classHistory: editingStudent?.classHistory || [
-        {
-          academicYearId: selectedClass?.academicYearId || 'ay_2026_2027',
-          semesterId: 'sem_2026_1',
-          classId: selectedClass?.id || '',
-          className: selectedClass?.name || '',
-        },
-      ],
+      eligibleRank: editingStudent?.eligibleRank ?? null,
+      classHistory: updatedHistory,
     };
 
     await saveStudent(studentToSave);
     setIsModalOpen(false);
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Apakah Anda yakin ingin menghapus data peserta didik: "${name}"? Tindakan ini tidak dapat dibatalkan.`)) {
-      await deleteStudent(id);
-    }
+  const handleDelete = (id: string, name: string) => {
+    setDeleteTarget({ id, name });
   };
 
-  // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Semua Kelas (Tiap Kelas 1 Sheet + Gabungan)
+  const confirmDeleteStudent = async () => {
+    if (!deleteTarget) return;
+    await deleteStudent(deleteTarget.id);
+    setDeleteTarget(null);
+  };
+
+  // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Semua Kelas sesuai Tahun Pelajaran & Semester aktif
   const handleExportAllClassesByAlphabet = () => {
     const baseStudents =
       selectedStatusFilter === 'ALL'
-        ? students
-        : students.filter(s => s.status === selectedStatusFilter);
+        ? periodStudents
+        : periodStudents.filter(s => s.status === selectedStatusFilter);
 
     exportStudentNamesByClassExcel({
       students: baseStudents,
@@ -336,12 +413,27 @@ export const StudentManagement: React.FC = () => {
     });
   };
 
-  // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Kelas Tertentu
+  // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Kelas Tertentu sesuai Tahun Pelajaran & Semester aktif
   const handleExportSingleClassByAlphabet = (classId: string) => {
+    let classStudentsToExport = periodStudents.filter(s => s.currentClassId === classId);
+    if (classStudentsToExport.length === 0) {
+      const targetCls = classes.find(c => c.id === classId);
+      classStudentsToExport = getClassStudentsWithHistory({
+        classId,
+        semesterId: selectedSemesterId,
+        students,
+        gradeEntries,
+      }).map(s => ({
+        ...s,
+        currentClassId: classId,
+        currentClassName: targetCls?.name || s.currentClassName,
+      }));
+    }
+
     const baseStudents =
       selectedStatusFilter === 'ALL'
-        ? students
-        : students.filter(s => s.status === selectedStatusFilter);
+        ? classStudentsToExport
+        : classStudentsToExport.filter(s => s.status === selectedStatusFilter);
 
     exportStudentNamesByClassExcel({
       students: baseStudents,
@@ -356,6 +448,7 @@ export const StudentManagement: React.FC = () => {
     if (!file) return;
     setExcelFileName(file.name);
     setExcelImportSuccessMsg(null);
+    setExcelErrorMsg(null);
     try {
       const parsed = await parseStudentExcelFile(
         file,
@@ -365,7 +458,7 @@ export const StudentManagement: React.FC = () => {
       );
       setExcelParsedData(parsed);
     } catch (err: any) {
-      alert('Gagal membaca file Excel: ' + (err.message || 'Pastikan format file adalah .xlsx atau .xls'));
+      setExcelErrorMsg('Gagal membaca file Excel: ' + (err.message || 'Pastikan format file adalah .xlsx atau .xls'));
     }
     e.target.value = '';
   };
@@ -373,6 +466,7 @@ export const StudentManagement: React.FC = () => {
   const handleConfirmExcelImport = async () => {
     if (!excelParsedData || excelParsedData.totalValid === 0) return;
     setIsImportingExcel(true);
+    setExcelErrorMsg(null);
     try {
       const validRows = excelParsedData.rows.filter(r => r.isValid);
       const now = Date.now();
@@ -382,6 +476,43 @@ export const StudentManagement: React.FC = () => {
           ? students.find(s => s.id === r.existingStudentId)
           : undefined;
         const targetClass = classes.find(c => c.id === r.classId);
+        const resolvedClassName = targetClass?.name || r.className;
+
+        const history = [...(existing?.classHistory || [])];
+        // Jika siswa sudah punya kelas lama yang berbeda dan belum tercatat di riwayat nilai/classHistory, amankan di riwayat
+        if (existing && existing.currentClassId && existing.currentClassId !== r.classId) {
+          const oldSemesters = new Set<string>(
+            gradeEntries
+              .filter(g => g.studentId === existing.id && g.classId === existing.currentClassId)
+              .map(g => g.semesterId)
+          );
+          oldSemesters.forEach(semId => {
+            if (!history.some(h => h.classId === existing.currentClassId && h.semesterId === semId)) {
+              const semObj = semesters.find(sm => sm.id === semId);
+              history.push({
+                academicYearId: semObj?.academicYearId || selectedYearId,
+                semesterId: semId,
+                classId: existing.currentClassId,
+                className: existing.currentClassName,
+              });
+            }
+          });
+        }
+
+        const currentPeriodEntry = {
+          academicYearId: selectedYearId || targetClass?.academicYearId || 'ay_2026_2027',
+          semesterId: selectedSemesterId || 'sem_2026_1',
+          classId: r.classId,
+          className: resolvedClassName,
+        };
+        const existingPeriodIdx = history.findIndex(
+          h => h.semesterId === currentPeriodEntry.semesterId
+        );
+        if (existingPeriodIdx >= 0) {
+          history[existingPeriodIdx] = currentPeriodEntry;
+        } else {
+          history.push(currentPeriodEntry);
+        }
 
         return {
           id: existing ? existing.id : `std_${now}_${idx}`,
@@ -392,28 +523,21 @@ export const StudentManagement: React.FC = () => {
           cohort: r.admissionYear || existing?.cohort || '2026',
           status: r.status || existing?.status || 'aktif',
           currentClassId: r.classId,
-          currentClassName: targetClass?.name || r.className,
+          currentClassName: resolvedClassName,
           portalPin: existing?.portalPin || '',
           eligibleRank: existing?.eligibleRank ?? null,
-          classHistory: existing?.classHistory || [
-            {
-              academicYearId: targetClass?.academicYearId || selectedYearId,
-              semesterId: selectedSemesterId,
-              classId: r.classId,
-              className: targetClass?.name || r.className,
-            },
-          ],
+          classHistory: history,
         };
       });
 
       await saveStudentsBatch(studentsToSave);
       setExcelImportSuccessMsg(
-        `Berhasil mengimpor ${studentsToSave.length} peserta didik (${excelParsedData.totalCreate} baru, ${excelParsedData.totalUpdate} diperbarui). Daftar otomatis diurutkan sesuai abjad tiap kelas.`
+        `Berhasil mengimpor ${studentsToSave.length} peserta didik (${excelParsedData.totalCreate} baru, ${excelParsedData.totalUpdate} diperbarui) untuk periode terpilih. Daftar otomatis diurutkan sesuai abjad tiap kelas.`
       );
       setExcelParsedData(null);
       setExcelFileName('');
     } catch (err: any) {
-      alert('Gagal menyimpan data peserta didik: ' + (err.message || 'Error'));
+      setExcelErrorMsg('Gagal menyimpan data peserta didik: ' + (err.message || 'Error'));
     } finally {
       setIsImportingExcel(false);
     }
@@ -516,8 +640,8 @@ export const StudentManagement: React.FC = () => {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="relative w-full md:w-80">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+        <div className="relative w-full xl:w-72">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -528,7 +652,50 @@ export const StudentManagement: React.FC = () => {
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+          {/* Tahun Pelajaran Filter (Synced with Header & Rekap Nilai) */}
+          <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-blue-50/70 px-2.5 py-1.5 rounded-lg border border-blue-200">
+            <History className="w-3.5 h-3.5 text-blue-600" />
+            <span className="font-medium text-blue-900">TP:</span>
+            <select
+              value={selectedYearId}
+              onChange={(e) => {
+                const newYearId = e.target.value;
+                setSelectedYearId(newYearId);
+                const matching = semesters
+                  .filter(s => s.academicYearId === newYearId)
+                  .sort((a, b) => String(a.semesterType).localeCompare(String(b.semesterType)))[0];
+                if (matching) setSelectedSemesterId(matching.id);
+              }}
+              className="bg-transparent font-bold text-blue-950 focus:outline-none cursor-pointer"
+            >
+              {academicYears.map(ay => (
+                <option key={ay.id} value={ay.id}>
+                  {ay.name} {ay.id === selectedYearId ? '(Aktif)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Semester Filter (Synced with Header & Rekap Nilai) */}
+          <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-blue-50/70 px-2.5 py-1.5 rounded-lg border border-blue-200">
+            <span className="font-medium text-blue-900">Semester:</span>
+            <select
+              value={selectedSemesterId}
+              onChange={(e) => setSelectedSemesterId(e.target.value)}
+              className="bg-transparent font-bold text-blue-950 focus:outline-none cursor-pointer"
+            >
+              {yearSemesters.map(s => {
+                const cleanName = s.name.replace(/\s*\(Aktif\)/gi, '').trim();
+                return (
+                  <option key={s.id} value={s.id}>
+                    {cleanName} {s.id === selectedSemesterId ? '(Aktif)' : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
           {/* Class Filter */}
           <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
             <Filter className="w-3.5 h-3.5 text-slate-400" />
@@ -647,7 +814,19 @@ export const StudentManagement: React.FC = () => {
                             {student.gender}
                           </span>
                         </td>
-                        <td className="py-3 px-3 font-medium text-slate-700">{student.currentClassName}</td>
+                        <td className="py-3 px-3 font-medium text-slate-700">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-bold text-slate-800">{student.currentClassName}</span>
+                            {student.isHistoricalPeriodClass && student.latestClassName && (
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold"
+                                title={`Pada periode ini di ${student.currentClassName}, saat ini berada di ${student.latestClassName}`}
+                              >
+                                Kini: {student.latestClassName}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3 px-3 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             student.status === 'aktif'
@@ -1125,6 +1304,13 @@ export const StudentManagement: React.FC = () => {
               </div>
             )}
 
+            {excelErrorMsg && (
+              <div className="mt-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{excelErrorMsg}</span>
+              </div>
+            )}
+
             {/* Step 1 & Step 2 Controls */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
@@ -1293,6 +1479,43 @@ export const StudentManagement: React.FC = () => {
                   </span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Hapus Data Peserta Didik</h3>
+                <p className="text-[11px] text-slate-500">Konfirmasi penghapusan permanen</p>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-slate-600 leading-relaxed">
+              Apakah Anda yakin ingin menghapus data peserta didik{' '}
+              <strong className="text-slate-900">"{deleteTarget.name}"</strong>? Tindakan ini tidak dapat dibatalkan.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteStudent}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold transition shadow-sm cursor-pointer"
+              >
+                Ya, Hapus Siswa
+              </button>
             </div>
           </div>
         </div>

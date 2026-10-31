@@ -25,6 +25,8 @@ import {
   exportExcelWorkbook,
   getPredicateForScore,
   sortStudentsAlphabetically,
+  getStudentsForPeriod,
+  getClassStudentsWithHistory,
 } from '../../lib/utils';
 
 interface ParsedRankRow {
@@ -50,8 +52,10 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
   const {
     students,
     classes,
+    gradeEntries,
     academicSummaries,
     semesters,
+    selectedYearId,
     selectedSemesterId,
     setSelectedSemesterId,
     currentSemester,
@@ -59,6 +63,17 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
     saveManualRanks,
     isSyncing,
   } = useAcademic();
+
+  const periodStudents = useMemo(() => {
+    return getStudentsForPeriod({
+      students,
+      classes,
+      semesters,
+      gradeEntries,
+      academicYearId: selectedYearId,
+      semesterId: selectedSemesterId,
+    });
+  }, [students, classes, semesters, gradeEntries, selectedYearId, selectedSemesterId]);
 
   const [activeViewMode, setActiveViewMode] = useState<'table' | 'upload'>('table');
   const [rankingType, setRankingType] = useState<'class' | 'parallel' | 'eligible'>(
@@ -114,20 +129,39 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
   // Compute items list based on mode
   const rankingItems = useMemo(() => {
     if (rankingType === 'class') {
-      const classStudents = students.filter(
+      let classStudents = periodStudents.filter(
         s => s.status === 'aktif' && s.currentClassId === selectedClassId
       );
+      if (classStudents.length === 0 && selectedClassId) {
+        classStudents = getClassStudentsWithHistory({
+          classId: selectedClassId,
+          semesterId: selectedSemesterId,
+          students,
+          gradeEntries,
+        }).map(s => ({
+          ...s,
+          currentClassId: selectedClassId,
+          currentClassName: currentClass?.name || s.currentClassName,
+        }));
+      }
 
       return classStudents.map(st => {
-        const summary = academicSummaries.find(
-          s => s.studentId === st.id && s.semesterId === selectedSemesterId
-        );
+        const summary =
+          academicSummaries.find(
+            s =>
+              s.studentId === st.id &&
+              s.semesterId === selectedSemesterId &&
+              s.classId === selectedClassId
+          ) ||
+          academicSummaries.find(
+            s => s.studentId === st.id && s.semesterId === selectedSemesterId
+          );
         return {
           studentId: st.id,
           nis: st.nis,
           nisn: st.nisn,
           name: st.name,
-          classId: st.currentClassId,
+          classId: selectedClassId || st.currentClassId,
           className: currentClass?.name || st.currentClassName || 'Kelas',
           gradeLevel: currentClass?.gradeLevel || '10',
           averageScore: summary?.averageScore ?? 0,
@@ -145,16 +179,23 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
       const levelClasses = classes.filter(c => c.gradeLevel === selectedGradeLevel);
       const levelClassIds = new Set(levelClasses.map(c => c.id));
 
-      const levelStudents = students.filter(
+      const levelStudents = periodStudents.filter(
         s =>
           s.status === 'aktif' &&
           (levelClassIds.has(s.currentClassId) || s.currentClassName.includes(selectedGradeLevel))
       );
 
       return levelStudents.map(st => {
-        const summary = academicSummaries.find(
-          s => s.studentId === st.id && s.semesterId === selectedSemesterId
-        );
+        const summary =
+          academicSummaries.find(
+            s =>
+              s.studentId === st.id &&
+              s.semesterId === selectedSemesterId &&
+              s.classId === st.currentClassId
+          ) ||
+          academicSummaries.find(
+            s => s.studentId === st.id && s.semesterId === selectedSemesterId
+          );
         const stClass = classes.find(c => c.id === st.currentClassId);
         return {
           studentId: st.id,
@@ -176,7 +217,7 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
         };
       });
     } else {
-      let eligibleStudents = students.filter(s => s.status === 'aktif');
+      let eligibleStudents = periodStudents.filter(s => s.status === 'aktif');
       if (eligibleGradeFilter !== 'all') {
         const filterClasses = classes.filter(c => c.gradeLevel === eligibleGradeFilter);
         const filterClassIds = new Set(filterClasses.map(c => c.id));
@@ -188,9 +229,16 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
       }
 
       return eligibleStudents.map(st => {
-        const summary = academicSummaries.find(
-          s => s.studentId === st.id && s.semesterId === selectedSemesterId
-        );
+        const summary =
+          academicSummaries.find(
+            s =>
+              s.studentId === st.id &&
+              s.semesterId === selectedSemesterId &&
+              s.classId === st.currentClassId
+          ) ||
+          academicSummaries.find(
+            s => s.studentId === st.id && s.semesterId === selectedSemesterId
+          );
         const stClass = classes.find(c => c.id === st.currentClassId);
         const eligibleRank = summary?.eligibleRank ?? st.eligibleRank ?? null;
         return {
@@ -218,7 +266,9 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
     selectedClassId,
     selectedGradeLevel,
     eligibleGradeFilter,
+    periodStudents,
     students,
+    gradeEntries,
     classes,
     academicSummaries,
     selectedSemesterId,
@@ -422,7 +472,7 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
   // 2. Ekspor Massal Peringkat Sesuai Halaman (Semua Kelas / Semua Tingkat Paralel / Semua Eligible)
   const handleExportAllRankingsForCurrentType = () => {
     const activeClasses = classes.filter(c => c.isActive);
-    const activeStudentsList = students.filter(s => s.status === 'aktif');
+    const activeStudentsList = periodStudents.filter(s => s.status === 'aktif');
     const sheets: { sheetName: string; data: Record<string, any>[] }[] = [];
 
     if (rankingType === 'class') {
@@ -673,7 +723,7 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
 
   const handleDownloadUploadTemplate = (scope: 'all' | 'current' = 'all') => {
     const activeClasses = classes.filter(c => c.isActive);
-    const activeStudentsList = students.filter(s => s.status === 'aktif');
+    const activeStudentsList = periodStudents.filter(s => s.status === 'aktif');
     const sheets: { sheetName: string; data: Record<string, any>[] }[] = [];
 
     if (rankingType === 'class') {

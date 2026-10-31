@@ -1,11 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { School, Plus, Edit2, Trash2, X, Users, BookOpen, Download } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import { ClassRoom } from '../../types';
-import { exportStudentNamesByClassExcel } from '../../lib/utils';
+import { exportStudentNamesByClassExcel, getStudentsForPeriod } from '../../lib/utils';
 
 export const ClassManagement: React.FC = () => {
-  const { classes, students, teachers, selectedYearId, saveClass, deleteClass } = useAcademic();
+  const {
+    classes,
+    students,
+    teachers,
+    semesters,
+    gradeEntries,
+    selectedYearId,
+    selectedSemesterId,
+    saveClass,
+    deleteClass,
+  } = useAcademic();
+
+  const periodStudents = useMemo(() => {
+    return getStudentsForPeriod({
+      students,
+      classes,
+      semesters,
+      gradeEntries,
+      academicYearId: selectedYearId,
+      semesterId: selectedSemesterId,
+    });
+  }, [students, classes, semesters, gradeEntries, selectedYearId, selectedSemesterId]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassRoom | null>(null);
@@ -67,7 +88,7 @@ export const ClassManagement: React.FC = () => {
 
   const handleExportClassStudents = (classId: string) => {
     exportStudentNamesByClassExcel({
-      students: students.filter(s => s.status === 'aktif'),
+      students: periodStudents.filter(s => s.status === 'aktif'),
       classes,
       targetClassId: classId,
       fileNamePrefix: 'Daftar_Nama_Peserta_Didik',
@@ -108,7 +129,7 @@ export const ClassManagement: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {classes.map((cls) => {
-          const activeStudentCount = students.filter(
+          const activeStudentCount = periodStudents.filter(
             s => s.currentClassId === cls.id && s.status === 'aktif'
           ).length;
 
