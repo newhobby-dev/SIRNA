@@ -44,6 +44,9 @@ import {
   isSubjectApplicableToClass,
   isSubjectApplicableToStudent,
   sortSubjects,
+  normalizeStudentClassHistory,
+  getClassGradeLevelNum,
+  parsePeriodOrder,
 } from '../lib/utils';
 import { useAuth } from './AuthContext';
 
@@ -131,7 +134,8 @@ interface AcademicContextType {
     targetClassId: string,
     targetClassName: string,
     targetAcademicYearId: string,
-    targetSemesterId: string
+    targetSemesterId: string,
+    sourceAcademicYearId?: string
   ) => Promise<void>;
   revertStudentPromotion: (studentIds: string[], targetOldClassId: string) => Promise<void>;
 }
@@ -501,6 +505,54 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return Number(a.semesterType) - Number(b.semesterType);
     });
   }, [rawSemesters, selectedSemesterId]);
+
+  // Self-healing: perbaiki otomatis riwayat kelas (classHistory) siswa hasil kenaikan kelas yang terdampak bug versi sebelumnya
+  useEffect(() => {
+    if (students.length === 0 || classes.length === 0 || semesters.length === 0) return;
+
+    const changedStudents: Student[] = [];
+    const nextStudents = students.map(st => {
+      const { history: normalizedHistory, changed } = normalizeStudentClassHistory({
+        student: st,
+        classes,
+        semesters,
+        gradeEntries,
+      });
+      if (changed) {
+        const updated = sanitizeFirestoreData({
+          ...st,
+          classHistory: normalizedHistory,
+        });
+        changedStudents.push(updated);
+        return updated;
+      }
+      return st;
+    });
+
+    if (changedStudents.length > 0) {
+      setStudents(nextStudents);
+      try {
+        localStorage.setItem('sirna_students', JSON.stringify(nextStudents));
+      } catch {}
+
+      const persistRepairedHistory = async () => {
+        try {
+          const chunkSize = 400;
+          for (let i = 0; i < changedStudents.length; i += chunkSize) {
+            const chunk = changedStudents.slice(i, i + chunkSize);
+            const batch = writeBatch(db);
+            chunk.forEach(s => {
+              batch.set(doc(db, 'students', s.id), sanitizeFirestoreData(s));
+            });
+            await batch.commit();
+          }
+        } catch (err) {
+          console.warn('Auto-repair classHistory sync warning:', err);
+        }
+      };
+      persistRepairedHistory();
+    }
+  }, [students, classes, semesters, gradeEntries]);
 
   const setSelectedYearId = (yearId: string) => {
     setSelectedYearIdState(yearId);
@@ -1721,38 +1773,107 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     targetClassId: string,
     targetClassName: string,
     targetAcademicYearId: string,
-    targetSemesterId: string
+    targetSemesterId: string,
+    sourceAcademicYearId?: string
   ) => {
     setIsSyncing(true);
     try {
+      const targetCls = classes.find(c => c.id === targetClassId);
+      const targetLevel = getClassGradeLevelNum(targetCls, targetClassName);
+
+      // Urutkan tahun ajaran secara kronologis (misal: 2024/2025 -> 2025/2026 -> 2026/2027)
+      const sortedYearsAsc = [...academicYears].sort(
+        (a, b) => parsePeriodOrder(a.id, a.name).order - parsePeriodOrder(b.id, b.name).order
+      );
+
+      let effectiveSourceYearId = sourceAcademicYearId || targetAcademicYearId;
+      let effectiveTargetYearId = targetAcademicYearId;
+
+      if (effectiveSourceYearId === effectiveTargetYearId && sortedYearsAsc.length > 1) {
+        const idx = sortedYearsAsc.findIndex(y => y.id === effectiveTargetYearId);
+        if (idx === 0 && sortedYearsAsc.length > 1) {
+          // Jika pengguna menekan proses naik kelas saat berada di Tahun Ajaran pertama (mis. 2024/2025),
+          // maka kelas asal adalah 2024/2025 dan kelas tujuan adalah Tahun Ajaran berikutnya (2025/2026)
+          effectiveSourceYearId = sortedYearsAsc[0].id;
+          effectiveTargetYearId = sortedYearsAsc[1].id;
+        } else if (idx > 0) {
+          // Jika pengguna berada di Tahun Ajaran baru (mis. 2025/2026), maka kelas asal adalah Tahun Ajaran sebelumnya (2024/2025)
+          effectiveSourceYearId = sortedYearsAsc[idx - 1].id;
+          effectiveTargetYearId = sortedYearsAsc[idx].id;
+        }
+      }
+
+      const targetYearObj = academicYears.find(y => y.id === effectiveTargetYearId);
+      const targetYearOrder = parsePeriodOrder(effectiveTargetYearId, targetYearObj?.name).yearNum;
+
       const updatedStudents = students.map(s => {
         if (studentIds.includes(s.id)) {
-          const history = [...(s.classHistory || [])];
+          const { history: normalizedHistory } = normalizeStudentClassHistory({
+            student: s,
+            classes,
+            semesters,
+            gradeEntries,
+          });
+          const oldClassId = s.currentClassId;
+          const oldClassName = s.currentClassName;
 
-          // Pastikan kelas asal (misal X-A) tercatat di riwayat untuk seluruh semester di mana siswa punya nilai di kelas asal
-          const semestersWithOldGrades = new Set<string>(
+          // Bersihkan entri riwayat tingkat bawah yang memiliki tahun >= tahun tujuan (misal data bawaan ay_2026_2027 pada kelas X)
+          let history = normalizedHistory.filter(h => {
+            const hCls = classes.find(c => c.id === h.classId);
+            const hLevel = getClassGradeLevelNum(hCls, h.className);
+            const hYear = parsePeriodOrder(h.academicYearId, h.semesterId).yearNum;
+            if (targetLevel > 0 && hLevel > 0 && hLevel < targetLevel && targetYearOrder > 0 && hYear >= targetYearOrder) {
+              return false;
+            }
+            return true;
+          });
+
+          // 1. Catat seluruh semester pada Tahun Ajaran Asal (dan semester yang punya nilai di kelas asal) untuk kelas asal
+          if (oldClassId && oldClassId !== targetClassId) {
+            const sourceSemesters = new Set<string>(
+              semesters
+                .filter(sm => sm.academicYearId === effectiveSourceYearId)
+                .map(sm => sm.id)
+            );
             gradeEntries
-              .filter(g => g.studentId === s.id && g.classId === s.currentClassId)
-              .map(g => g.semesterId)
-          );
-          if (semestersWithOldGrades.size === 0) {
-            semestersWithOldGrades.add(targetSemesterId);
+              .filter(g => g.studentId === s.id && g.classId === oldClassId)
+              .forEach(g => sourceSemesters.add(g.semesterId));
+
+            sourceSemesters.forEach(semId => {
+              const semObj = semesters.find(sm => sm.id === semId);
+              const yearIdForOld = semObj?.academicYearId || effectiveSourceYearId;
+              // Hapus entri lama yang bentrok di semester ini bila ada
+              history = history.filter(h => h.semesterId !== semId);
+              history.push({
+                academicYearId: yearIdForOld,
+                semesterId: semId,
+                classId: oldClassId,
+                className: oldClassName,
+              });
+            });
           }
 
-          semestersWithOldGrades.forEach(semId => {
-            const exists = history.some(
-              h => h.classId === s.currentClassId && h.semesterId === semId
-            );
-            if (!exists && s.currentClassId) {
-              const semObj = semesters.find(sm => sm.id === semId);
+          // 2. Catat seluruh semester pada Tahun Ajaran Tujuan untuk kelas tujuan baru (misal XI-A di 2025/2026)
+          const targetSemesters = semesters.filter(sm => sm.academicYearId === effectiveTargetYearId);
+          if (targetSemesters.length > 0) {
+            targetSemesters.forEach(tSem => {
+              history = history.filter(h => h.semesterId !== tSem.id);
               history.push({
-                academicYearId: semObj?.academicYearId || targetAcademicYearId,
-                semesterId: semId,
-                classId: s.currentClassId,
-                className: s.currentClassName,
+                academicYearId: effectiveTargetYearId,
+                semesterId: tSem.id,
+                classId: targetClassId,
+                className: targetClassName,
               });
-            }
-          });
+            });
+          } else {
+            history = history.filter(h => h.semesterId !== targetSemesterId);
+            history.push({
+              academicYearId: effectiveTargetYearId,
+              semesterId: targetSemesterId,
+              classId: targetClassId,
+              className: targetClassName,
+            });
+          }
 
           return sanitizeFirestoreData({
             ...s,
@@ -1794,13 +1915,28 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const oldClass = classes.find(c => c.id === targetOldClassId);
       if (!oldClass) return;
+      const oldLevel = getClassGradeLevelNum(oldClass, oldClass.name);
 
       const updatedStudents = students.map(s => {
         if (studentIds.includes(s.id)) {
+          const currentFailedClassId = s.currentClassId;
+          const cleanedHistory = (s.classHistory || []).filter(h => {
+            if (h.classId === currentFailedClassId && currentFailedClassId !== oldClass.id) {
+              return false;
+            }
+            const hCls = classes.find(c => c.id === h.classId);
+            const hLevel = getClassGradeLevelNum(hCls, h.className);
+            if (oldLevel > 0 && hLevel > oldLevel) {
+              return false;
+            }
+            return true;
+          });
+
           return sanitizeFirestoreData({
             ...s,
             currentClassId: oldClass.id,
             currentClassName: oldClass.name,
+            classHistory: cleanedHistory,
           });
         }
         return s;

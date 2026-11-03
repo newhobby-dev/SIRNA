@@ -81,10 +81,17 @@ export const PeriodManagement: React.FC = () => {
     if (!newYearName.trim()) return;
 
     const cleanName = newYearName.trim().replace(/\s*\(Aktif\)\s*/gi, '');
+    const yearDigits = cleanName.match(/20\d{2}/g);
+    const startYear = yearDigits && yearDigits[0] ? yearDigits[0] : cleanName.split('/')[0]?.replace(/\D/g, '') || '2027';
+    const endYear =
+      yearDigits && yearDigits[1]
+        ? yearDigits[1]
+        : String(parseInt(startYear, 10) + 1);
+
     const existingYear = academicYears.find(
-      y => y.name.trim().toLowerCase() === cleanName.toLowerCase()
+      y => y.name.trim().toLowerCase() === cleanName.toLowerCase() || y.id === `ay_${startYear}_${endYear}`
     );
-    const yearId = existingYear ? existingYear.id : 'ay_' + cleanName.replace(/[^0-9]/g, '_');
+    const yearId = existingYear ? existingYear.id : `ay_${startYear}_${endYear}`;
     const newYear = {
       id: yearId,
       name: cleanName,
@@ -95,10 +102,6 @@ export const PeriodManagement: React.FC = () => {
     await saveAcademicYear(newYear);
 
     if (createDefaultSemesters) {
-      const parts = cleanName.split('/');
-      const startYear = parts[0] || '2027';
-      const endYear = parts[1] || '2028';
-
       const existingSem1 = semesters.find(
         s => s.academicYearId === yearId && s.semesterType === '1'
       );

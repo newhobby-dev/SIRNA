@@ -33,6 +33,7 @@ import {
   getStudentsForPeriod,
   getClassStudentsWithHistory,
   PeriodStudent,
+  parsePeriodOrder,
 } from '../../lib/utils';
 
 export const StudentManagement: React.FC = () => {
@@ -75,6 +76,12 @@ export const StudentManagement: React.FC = () => {
   });
   const [formError, setFormError] = useState('');
 
+  const sortedAcademicYearsAsc = useMemo(() => {
+    return [...academicYears].sort(
+      (a, b) => parsePeriodOrder(a.id, a.name).order - parsePeriodOrder(b.id, b.name).order
+    );
+  }, [academicYears]);
+
   // Promotion Modal State (Directive 8)
   const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
   const [promotionMode, setPromotionMode] = useState<'x_to_xi' | 'xi_to_xii'>('x_to_xi');
@@ -86,6 +93,8 @@ export const StudentManagement: React.FC = () => {
     const firstXI = classes.find(c => c.gradeLevel === '11' || c.code.startsWith('XI-'));
     return firstXI?.id || classes[1]?.id || classes[0]?.id || '';
   });
+  const [promotionSourceYearId, setPromotionSourceYearId] = useState<string>('');
+  const [promotionTargetYearId, setPromotionTargetYearId] = useState<string>('');
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [promotionFeedback, setPromotionFeedback] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
@@ -128,11 +137,30 @@ export const StudentManagement: React.FC = () => {
       const tgt = classes.find(c => c.gradeLevel === '11' || c.code.startsWith('XI-'));
       if (src) setSourceClassId(src.id);
       if (tgt) setTargetClassId(tgt.id);
+
+      if (sortedAcademicYearsAsc.length >= 2) {
+        setPromotionSourceYearId(sortedAcademicYearsAsc[0].id);
+        setPromotionTargetYearId(sortedAcademicYearsAsc[1].id);
+      } else {
+        setPromotionSourceYearId(selectedYearId);
+        setPromotionTargetYearId(selectedYearId);
+      }
     } else {
       const src = classes.find(c => c.gradeLevel === '11' || c.code.startsWith('XI-'));
       const tgt = classes.find(c => c.gradeLevel === '12' || c.code.startsWith('XII'));
       if (src) setSourceClassId(src.id);
       if (tgt) setTargetClassId(tgt.id);
+
+      if (sortedAcademicYearsAsc.length >= 3) {
+        setPromotionSourceYearId(sortedAcademicYearsAsc[1].id);
+        setPromotionTargetYearId(sortedAcademicYearsAsc[2].id);
+      } else if (sortedAcademicYearsAsc.length >= 2) {
+        setPromotionSourceYearId(sortedAcademicYearsAsc[0].id);
+        setPromotionTargetYearId(sortedAcademicYearsAsc[1].id);
+      } else {
+        setPromotionSourceYearId(selectedYearId);
+        setPromotionTargetYearId(selectedYearId);
+      }
     }
   };
 
@@ -188,6 +216,13 @@ export const StudentManagement: React.FC = () => {
       return;
     }
 
+    const effectiveSrcYear = promotionSourceYearId || selectedYearId;
+    const effectiveTgtYear = promotionTargetYearId || selectedYearId;
+    const targetYearSemesters = semesters
+      .filter(s => s.academicYearId === effectiveTgtYear)
+      .sort((a, b) => Number(a.semesterType) - Number(b.semesterType));
+    const effectiveTgtSemId = targetYearSemesters[0]?.id || selectedSemesterId;
+
     setIsPromoting(true);
     setPromotionFeedback(null);
     try {
@@ -195,11 +230,20 @@ export const StudentManagement: React.FC = () => {
         idsToPromote,
         targetClass.id,
         targetClass.name,
-        selectedYearId,
-        selectedSemesterId
+        effectiveTgtYear,
+        effectiveTgtSemId,
+        effectiveSrcYear
       );
+      if (effectiveTgtYear && effectiveTgtYear !== selectedYearId) {
+        setSelectedYearId(effectiveTgtYear);
+      }
+      if (effectiveTgtSemId && effectiveTgtSemId !== selectedSemesterId) {
+        setSelectedSemesterId(effectiveTgtSemId);
+      }
+      const srcYearName = academicYears.find(y => y.id === effectiveSrcYear)?.name || effectiveSrcYear;
+      const tgtYearName = academicYears.find(y => y.id === effectiveTgtYear)?.name || effectiveTgtYear;
       setPromotionFeedback(
-        `Sukses! ${idsToPromote.length} peserta didik berhasil dinaikkan ke ${targetClass.name}. Data nilai pada kelas asal tetap tersimpan di arsip kelas asal dan tidak tertukar ke kelas baru.`
+        `Sukses! ${idsToPromote.length} peserta didik berhasil dinaikkan dari Tahun Ajaran ${srcYearName} ke ${targetClass.name} (Tahun Ajaran ${tgtYearName}). Data pada kelas asal maupun kelas baru tetap utuh dan tidak hilang saat ada tambahan siswa mutasi.`
       );
       setSelectedStudentIds([]);
     } catch (err: any) {
@@ -244,26 +288,47 @@ export const StudentManagement: React.FC = () => {
 
     if (selectedClassFilter !== 'ALL') {
       const directMatches = periodStudents.filter(s => s.currentClassId === selectedClassFilter);
-      if (directMatches.length > 0) {
-        result = directMatches;
-      } else {
-        // Fallback ke riwayat kelas pada semester terpilih (identik dengan Rekap & Unggah Nilai saat memilih kelas historis)
-        const targetCls = classes.find(c => c.id === selectedClassFilter);
-        const historyMatches = getClassStudentsWithHistory({
-          classId: selectedClassFilter,
-          semesterId: selectedSemesterId,
-          students,
-          gradeEntries,
-        });
-        result = historyMatches.map(s => ({
-          ...s,
-          currentClassId: selectedClassFilter,
-          currentClassName: targetCls?.name || s.currentClassName,
-          latestClassId: s.currentClassId,
-          latestClassName: s.currentClassName,
-          isHistoricalPeriodClass: s.currentClassId !== selectedClassFilter,
-        }));
-      }
+      const targetCls = classes.find(c => c.id === selectedClassFilter);
+      const historyMatches = getClassStudentsWithHistory({
+        classId: selectedClassFilter,
+        semesterId: selectedSemesterId,
+        students,
+        gradeEntries,
+      });
+
+      const mergedById = new Map<string, PeriodStudent>();
+      directMatches.forEach(s => mergedById.set(s.id, s));
+
+      // Pastikan penambahan siswa mutasi baru tidak pernah menyembunyikan siswa hasil kenaikan kelas di kelas yang sama
+      historyMatches.forEach(s => {
+        if (mergedById.has(s.id)) return;
+        const periodEntry = periodStudents.find(p => p.id === s.id);
+        if (!periodEntry) return;
+
+        const hasExplicitGradeInOtherClassThisSem = gradeEntries.some(
+          g =>
+            g.studentId === s.id &&
+            g.semesterId === selectedSemesterId &&
+            g.classId &&
+            g.classId !== selectedClassFilter
+        );
+
+        if (
+          directMatches.length === 0 ||
+          (s.currentClassId === selectedClassFilter && !hasExplicitGradeInOtherClassThisSem)
+        ) {
+          mergedById.set(s.id, {
+            ...s,
+            currentClassId: selectedClassFilter,
+            currentClassName: targetCls?.name || s.currentClassName,
+            latestClassId: s.currentClassId,
+            latestClassName: s.currentClassName,
+            isHistoricalPeriodClass: s.currentClassId !== selectedClassFilter,
+          });
+        }
+      });
+
+      result = Array.from(mergedById.values());
     }
 
     if (selectedStatusFilter !== 'ALL') {
@@ -351,22 +416,23 @@ export const StudentManagement: React.FC = () => {
     const targetClassIdToSave = selectedClass?.id || formData.currentClassId || '';
     const targetClassNameToSave = selectedClass?.name || 'Belum Terdaftar';
 
-    const updatedHistory = [...(editingStudent?.classHistory || [])];
+    let updatedHistory = [...(editingStudent?.classHistory || [])];
     if (targetClassIdToSave) {
-      const existingIdx = updatedHistory.findIndex(
-        h => h.semesterId === selectedSemesterId
-      );
-      const historyItem = {
-        academicYearId: selectedYearId || selectedClass?.academicYearId || 'ay_2026_2027',
-        semesterId: selectedSemesterId || 'sem_2026_1',
-        classId: targetClassIdToSave,
-        className: targetClassNameToSave,
-      };
-      if (existingIdx >= 0) {
-        updatedHistory[existingIdx] = historyItem;
-      } else {
-        updatedHistory.push(historyItem);
-      }
+      const activeYearId = selectedYearId || selectedClass?.academicYearId || 'ay_2026_2027';
+      const targetSemsForYear =
+        yearSemesters.length > 0
+          ? yearSemesters
+          : [{ id: selectedSemesterId || 'sem_2026_1', academicYearId: activeYearId }];
+
+      targetSemsForYear.forEach(tSem => {
+        updatedHistory = updatedHistory.filter(h => h.semesterId !== tSem.id);
+        updatedHistory.push({
+          academicYearId: activeYearId,
+          semesterId: tSem.id,
+          classId: targetClassIdToSave,
+          className: targetClassNameToSave,
+        });
+      });
     }
 
     const studentToSave: Student = {
@@ -415,20 +481,33 @@ export const StudentManagement: React.FC = () => {
 
   // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Kelas Tertentu sesuai Tahun Pelajaran & Semester aktif
   const handleExportSingleClassByAlphabet = (classId: string) => {
-    let classStudentsToExport = periodStudents.filter(s => s.currentClassId === classId);
-    if (classStudentsToExport.length === 0) {
-      const targetCls = classes.find(c => c.id === classId);
-      classStudentsToExport = getClassStudentsWithHistory({
-        classId,
-        semesterId: selectedSemesterId,
-        students,
-        gradeEntries,
-      }).map(s => ({
-        ...s,
-        currentClassId: classId,
-        currentClassName: targetCls?.name || s.currentClassName,
-      }));
-    }
+    const directMatches = periodStudents.filter(s => s.currentClassId === classId);
+    const targetCls = classes.find(c => c.id === classId);
+    const historyMatches = getClassStudentsWithHistory({
+      classId,
+      semesterId: selectedSemesterId,
+      students,
+      gradeEntries,
+    });
+
+    const mergedById = new Map<string, PeriodStudent>();
+    directMatches.forEach(s => mergedById.set(s.id, s));
+    historyMatches.forEach(s => {
+      if (mergedById.has(s.id)) return;
+      const periodEntry = periodStudents.find(p => p.id === s.id);
+      if (!periodEntry) return;
+      const hasExplicitGradeInOtherClassThisSem = gradeEntries.some(
+        g => g.studentId === s.id && g.semesterId === selectedSemesterId && g.classId && g.classId !== classId
+      );
+      if (directMatches.length === 0 || (s.currentClassId === classId && !hasExplicitGradeInOtherClassThisSem)) {
+        mergedById.set(s.id, {
+          ...s,
+          currentClassId: classId,
+          currentClassName: targetCls?.name || s.currentClassName,
+        });
+      }
+    });
+    const classStudentsToExport = Array.from(mergedById.values());
 
     const baseStudents =
       selectedStatusFilter === 'ALL'
@@ -499,20 +578,22 @@ export const StudentManagement: React.FC = () => {
           });
         }
 
-        const currentPeriodEntry = {
-          academicYearId: selectedYearId || targetClass?.academicYearId || 'ay_2026_2027',
-          semesterId: selectedSemesterId || 'sem_2026_1',
-          classId: r.classId,
-          className: resolvedClassName,
-        };
-        const existingPeriodIdx = history.findIndex(
-          h => h.semesterId === currentPeriodEntry.semesterId
-        );
-        if (existingPeriodIdx >= 0) {
-          history[existingPeriodIdx] = currentPeriodEntry;
-        } else {
-          history.push(currentPeriodEntry);
-        }
+        const activeYearId = selectedYearId || targetClass?.academicYearId || 'ay_2026_2027';
+        const targetSemsForYear =
+          yearSemesters.length > 0
+            ? yearSemesters
+            : [{ id: selectedSemesterId || 'sem_2026_1', academicYearId: activeYearId }];
+
+        let nextHistory = [...history];
+        targetSemsForYear.forEach(tSem => {
+          nextHistory = nextHistory.filter(h => h.semesterId !== tSem.id);
+          nextHistory.push({
+            academicYearId: activeYearId,
+            semesterId: tSem.id,
+            classId: r.classId,
+            className: resolvedClassName,
+          });
+        });
 
         return {
           id: existing ? existing.id : `std_${now}_${idx}`,
@@ -526,7 +607,7 @@ export const StudentManagement: React.FC = () => {
           currentClassName: resolvedClassName,
           portalPin: existing?.portalPin || '',
           eligibleRank: existing?.eligibleRank ?? null,
-          classHistory: history,
+          classHistory: nextHistory,
         };
       });
 
@@ -1085,9 +1166,24 @@ export const StudentManagement: React.FC = () => {
               )}
             </div>
 
-            {/* Class Selection Controls */}
+            {/* Academic Year & Class Selection Controls */}
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Tahun Ajaran Asal ({promotionMode === 'xi_to_xii' ? 'Saat di Kelas XI' : 'Saat di Kelas X'}) *
+                </label>
+                <select
+                  value={promotionSourceYearId || selectedYearId}
+                  onChange={(e) => setPromotionSourceYearId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 font-bold text-slate-800 bg-white mb-2.5"
+                >
+                  {sortedAcademicYearsAsc.map(y => (
+                    <option key={y.id} value={y.id}>
+                      Tahun Ajaran {y.name}
+                    </option>
+                  ))}
+                </select>
+
                 <label className="block font-semibold text-slate-700 mb-1">
                   Rombel Asal ({promotionMode === 'xi_to_xii' ? 'Tingkat 11' : 'Tingkat 10'}) *
                 </label>
@@ -1110,6 +1206,21 @@ export const StudentManagement: React.FC = () => {
               </div>
 
               <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Tahun Ajaran Tujuan ({promotionMode === 'xi_to_xii' ? 'Naik ke Kelas XII' : 'Naik ke Kelas XI'}) *
+                </label>
+                <select
+                  value={promotionTargetYearId || selectedYearId}
+                  onChange={(e) => setPromotionTargetYearId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 font-bold text-slate-800 bg-white mb-2.5"
+                >
+                  {sortedAcademicYearsAsc.map(y => (
+                    <option key={y.id} value={y.id}>
+                      Tahun Ajaran {y.name}
+                    </option>
+                  ))}
+                </select>
+
                 <label className="block font-semibold text-slate-700 mb-1">
                   Rombel Tujuan ({promotionMode === 'xi_to_xii' ? 'Tingkat 12' : 'Tingkat 11'}) *
                 </label>
