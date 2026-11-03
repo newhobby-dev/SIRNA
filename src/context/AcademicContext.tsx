@@ -351,6 +351,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!snap.empty) {
         const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as AcademicYear));
         setAcademicYears(items);
+        try { localStorage.setItem('sirna_academic_years', JSON.stringify(items)); } catch {}
         setNetworkOnline(true);
       }
     }, handleSnapshotErr('academicYears'));
@@ -359,6 +360,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!snap.empty) {
         const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Semester));
         setSemesters(items);
+        try { localStorage.setItem('sirna_semesters', JSON.stringify(items)); } catch {}
         setNetworkOnline(true);
       }
     }, handleSnapshotErr('semesters'));
@@ -367,6 +369,7 @@ export const AcademicProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!snap.empty) {
         const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as ClassRoom));
         setClasses(items);
+        try { localStorage.setItem('sirna_classes', JSON.stringify(items)); } catch {}
         setNetworkOnline(true);
       }
     }, handleSnapshotErr('classes'));

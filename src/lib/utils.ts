@@ -702,230 +702,273 @@ export function normalizeStudentClassHistory(params: {
   const hasPromotedHistory =
     oldClassEntriesFromHistory.length > 0 || oldClassEntriesFromGrades.length > 0;
 
-  if (!hasPromotedHistory) {
+  if (!hasPromotedHistory || !s.currentClassId) {
     return { history: rawHistory, changed: false };
   }
 
-  // 1. Bersihkan entri placeholder bawaan (ay_2026_2027 / sem_2026_1) pada kelas tingkat bawah (misal Kelas X)
-  // jika siswa saat ini sudah berada di tingkat atas (Kelas XI / XII) dan tidak punya nilai di kelas bawah pada tahun 2026
-  const cleanedHistory = rawHistory.filter(h => {
-    if (!h.classId || h.classId === s.currentClassId) return true;
-    const hCls = classById.get(h.classId);
-    const hGrade = getClassGradeLevelNum(hCls, h.className);
-    const semObj = semesterById.get(h.semesterId);
-    const p = parsePeriodOrder(
-      h.academicYearId || semObj?.academicYearId,
-      `${h.semesterId} ${semObj?.name || ''}`
-    );
+  // Temukan kelas tingkat X (grade 10) dan tingkat XI (grade 11) bila siswa sudah naik kelas
+  const findOldClassByGrade = (targetGrade: number) => {
+    for (let i = oldClassEntriesFromHistory.length - 1; i >= 0; i--) {
+      const h = oldClassEntriesFromHistory[i];
+      const cls = classById.get(h.classId);
+      if (getClassGradeLevelNum(cls, h.className) === targetGrade) {
+        return { classId: h.classId, className: cls?.name || h.className };
+      }
+    }
+    for (let i = 0; i < oldClassEntriesFromGrades.length; i++) {
+      const g = oldClassEntriesFromGrades[i];
+      const cls = classById.get(g.classId);
+      if (getClassGradeLevelNum(cls, g.className) === targetGrade) {
+        return { classId: g.classId, className: cls?.name || g.className };
+      }
+    }
+    return null;
+  };
 
-    if (currGrade > 0 && hGrade > 0 && hGrade < currGrade && p.yearNum >= 2026) {
-      const hasActualGradeIn2026 = studentGrades.some(g => {
-        if (g.classId !== h.classId) return false;
+  // KASUS UTAMA: Siswa saat ini berada di Kelas XI (currGrade === 11) hasil kenaikan dari Kelas X (grade 10)
+  if (currGrade === 11) {
+    const grade10Info = findOldClassByGrade(10) || {
+      classId: (oldClassEntriesFromHistory[0] || oldClassEntriesFromGrades[0])?.classId || '',
+      className:
+        classById.get((oldClassEntriesFromHistory[0] || oldClassEntriesFromGrades[0])?.classId || '')
+          ?.name ||
+        (oldClassEntriesFromHistory[0] || oldClassEntriesFromGrades[0])?.className ||
+        'Kelas X',
+    };
+
+    if (grade10Info.classId) {
+      // Tentukan tahun ajaran Kelas X (oldYearNum) dan Kelas XI (currYearNum).
+      // Jika sistem memiliki Tahun Ajaran 2024/2025 (atau riwayat mencatat 2024, atau belum ada nilai Kelas XI di 2026),
+      // maka Kelas X adalah 2024/2025 (2024) dan Kelas XI adalah 2025/2026 (2025).
+      const hasGrade11In2026 = studentGrades.some(g => {
+        if (g.classId !== s.currentClassId) return false;
         const gSem = semesterById.get(g.semesterId);
         const gp = parsePeriodOrder(g.academicYearId || gSem?.academicYearId, g.semesterId);
-        return gp.yearNum === p.yearNum;
+        return gp.yearNum === 2026;
       });
-      if (!hasActualGradeIn2026) {
-        return false;
-      }
-    }
-    return true;
-  });
 
-  const hasCurrentClassInCleaned = cleanedHistory.some(h => h.classId === s.currentClassId);
-
-  // 2. Jika siswa sudah naik kelas (misal di XI-A), tetapi classHistory belum mencatat kelas barunya (XI-A)
-  // atau kelas lamanya (X-A) tercatat di tahun ajaran tujuan karena perilaku promoteStudentsBatch lama:
-  if (!hasCurrentClassInCleaned && s.currentClassId) {
-    // Temukan kelas asal (misal X-A)
-    const sampleOld =
-      oldClassEntriesFromHistory[oldClassEntriesFromHistory.length - 1] ||
-      oldClassEntriesFromGrades[0];
-    const oldClassId = sampleOld?.classId || '';
-    const oldCls = classById.get(oldClassId);
-    const oldClassName = oldCls?.name || sampleOld?.className || 'Kelas Asal';
-    const oldGrade = getClassGradeLevelNum(oldCls, oldClassName);
-
-    // Tentukan tahun ajaran kelas asal (oldYearNum) dan tahun ajaran kelas baru (currYearNum)
-    let oldYearNum = 0;
-    let currYearNum = 0;
-
-    // Cek dari gradeEntries di kelas baru jika ada
-    const currClassGrades = studentGrades.filter(g => g.classId === s.currentClassId);
-    if (currClassGrades.length > 0) {
-      const g0 = currClassGrades[0];
-      const gSem = semesterById.get(g0.semesterId);
-      currYearNum = parsePeriodOrder(g0.academicYearId || gSem?.academicYearId, g0.semesterId).yearNum;
-    }
-
-    // Cek dari gradeEntries di kelas lama jika ada
-    const oldClassGrades = studentGrades.filter(g => g.classId === oldClassId);
-    if (oldClassGrades.length > 0) {
-      const g0 = oldClassGrades[0];
-      const gSem = semesterById.get(g0.semesterId);
-      oldYearNum = parsePeriodOrder(g0.academicYearId || gSem?.academicYearId, g0.semesterId).yearNum;
-    }
-
-    if (oldYearNum > 0 && currYearNum === 0) {
-      const diff = currGrade > oldGrade && oldGrade > 0 ? currGrade - oldGrade : 1;
-      currYearNum = oldYearNum + diff;
-    } else if (currYearNum > 0 && oldYearNum === 0) {
-      const diff = currGrade > oldGrade && oldGrade > 0 ? currGrade - oldGrade : 1;
-      oldYearNum = currYearNum - diff;
-    } else if (oldYearNum === 0 && currYearNum === 0) {
-      // Tidak ada nilai di kelas lama maupun baru; periksa tahun pada cleanedHistory
-      const historyYears = cleanedHistory
-        .filter(h => h.classId === oldClassId)
-        .map(h => {
+      const has2024InSystemOrHistory =
+        sortedYears.includes(2024) ||
+        rawHistory.some(h => {
           const semObj = semesterById.get(h.semesterId);
-          return parsePeriodOrder(
-            h.academicYearId || semObj?.academicYearId,
-            `${h.semesterId} ${semObj?.name || ''}`
-          ).yearNum;
-        })
-        .filter(y => y > 0);
+          return (
+            parsePeriodOrder(
+              h.academicYearId || semObj?.academicYearId,
+              `${h.semesterId} ${semObj?.name || ''}`
+            ).yearNum === 2024
+          );
+        }) ||
+        !hasGrade11In2026;
 
-      const minSchoolYear = sortedYears[0] || 2024;
-      if (currGrade === 11 && oldGrade === 10) {
-        if (sortedYears.includes(2024) && (historyYears.includes(2024) || historyYears.includes(2025) || historyYears.length === 0)) {
-          oldYearNum = 2024;
-          currYearNum = 2025;
-        } else {
-          oldYearNum = historyYears[0] || minSchoolYear;
-          currYearNum = oldYearNum + 1;
-        }
-      } else if (currGrade === 12) {
-        currYearNum = sortedYears[sortedYears.length - 1] || 2026;
-        oldYearNum = currYearNum - 1;
-      } else {
-        oldYearNum = historyYears[0] || minSchoolYear;
-        currYearNum = oldYearNum + 1;
-      }
+      const oldYearNum = has2024InSystemOrHistory ? 2024 : sortedYears[0] || 2024;
+      const currYearNum = oldYearNum + 1;
+
+      const oldY = getYearInfo(oldYearNum);
+      const currY = getYearInfo(currYearNum);
+      const currClassName = currCls?.name || s.currentClassName;
+
+      const expectedHistory: NonNullable<Student['classHistory']> = [
+        {
+          academicYearId: oldY.academicYearId,
+          semesterId: oldY.sem1Id,
+          classId: grade10Info.classId,
+          className: grade10Info.className,
+        },
+        {
+          academicYearId: oldY.academicYearId,
+          semesterId: oldY.sem2Id,
+          classId: grade10Info.classId,
+          className: grade10Info.className,
+        },
+        {
+          academicYearId: currY.academicYearId,
+          semesterId: currY.sem1Id,
+          classId: s.currentClassId,
+          className: currClassName,
+        },
+        {
+          academicYearId: currY.academicYearId,
+          semesterId: currY.sem2Id,
+          classId: s.currentClassId,
+          className: currClassName,
+        },
+      ];
+
+      const isAlreadyExact =
+        rawHistory.length === expectedHistory.length &&
+        expectedHistory.every(exp =>
+          rawHistory.some(
+            r =>
+              r.semesterId === exp.semesterId &&
+              r.classId === exp.classId &&
+              r.academicYearId === exp.academicYearId
+          )
+        );
+
+      return {
+        history: isAlreadyExact ? rawHistory : expectedHistory,
+        changed: !isAlreadyExact,
+      };
     }
+  }
+
+  // KASUS KEDUA: Siswa saat ini berada di Kelas XII (currGrade === 12)
+  if (currGrade === 12) {
+    const grade10Info = findOldClassByGrade(10);
+    const grade11Info = findOldClassByGrade(11);
+    const currClassName = currCls?.name || s.currentClassName;
 
     const rebuilt: NonNullable<Student['classHistory']> = [];
-
-    if (oldClassId && oldYearNum > 0) {
-      const oldY = getYearInfo(oldYearNum);
-      rebuilt.push({
-        academicYearId: oldY.academicYearId,
-        semesterId: oldY.sem1Id,
-        classId: oldClassId,
-        className: oldClassName,
-      });
-      rebuilt.push({
-        academicYearId: oldY.academicYearId,
-        semesterId: oldY.sem2Id,
-        classId: oldClassId,
-        className: oldClassName,
-      });
+    if (grade10Info?.classId) {
+      const y2024 = getYearInfo(2024);
+      rebuilt.push(
+        {
+          academicYearId: y2024.academicYearId,
+          semesterId: y2024.sem1Id,
+          classId: grade10Info.classId,
+          className: grade10Info.className,
+        },
+        {
+          academicYearId: y2024.academicYearId,
+          semesterId: y2024.sem2Id,
+          classId: grade10Info.classId,
+          className: grade10Info.className,
+        }
+      );
     }
-
-    if (currYearNum > 0) {
-      const currY = getYearInfo(currYearNum);
-      rebuilt.push({
-        academicYearId: currY.academicYearId,
-        semesterId: currY.sem1Id,
-        classId: s.currentClassId,
-        className: currCls?.name || s.currentClassName,
-      });
-      rebuilt.push({
-        academicYearId: currY.academicYearId,
-        semesterId: currY.sem2Id,
-        classId: s.currentClassId,
-        className: currCls?.name || s.currentClassName,
-      });
+    if (grade11Info?.classId) {
+      const y2025 = getYearInfo(2025);
+      rebuilt.push(
+        {
+          academicYearId: y2025.academicYearId,
+          semesterId: y2025.sem1Id,
+          classId: grade11Info.classId,
+          className: grade11Info.className,
+        },
+        {
+          academicYearId: y2025.academicYearId,
+          semesterId: y2025.sem2Id,
+          classId: grade11Info.classId,
+          className: grade11Info.className,
+        }
+      );
     }
+    const y2026 = getYearInfo(2026);
+    rebuilt.push(
+      {
+        academicYearId: y2026.academicYearId,
+        semesterId: y2026.sem1Id,
+        classId: s.currentClassId,
+        className: currClassName,
+      },
+      {
+        academicYearId: y2026.academicYearId,
+        semesterId: y2026.sem2Id,
+        classId: s.currentClassId,
+        className: currClassName,
+      }
+    );
+
+    const isAlreadyExact =
+      rawHistory.length === rebuilt.length &&
+      rebuilt.every(exp =>
+        rawHistory.some(
+          r =>
+            r.semesterId === exp.semesterId &&
+            r.classId === exp.classId &&
+            r.academicYearId === exp.academicYearId
+        )
+      );
 
     return {
-      history: rebuilt.length > 0 ? rebuilt : cleanedHistory,
-      changed: true,
+      history: isAlreadyExact ? rawHistory : rebuilt,
+      changed: !isAlreadyExact,
     };
   }
 
   return {
-    history: cleanedHistory,
-    changed: cleanedHistory.length !== rawHistory.length,
+    history: rawHistory,
+    changed: false,
   };
 }
 
 /**
- * Mengambil daftar peserta didik pada suatu Kelas/Rombel (termasuk siswa yang pernah berada di kelas tersebut
- * sebelum naik kelas / memiliki riwayat nilai di kelas tersebut), sehingga ketika siswa naik dari Kelas X ke XI,
- * data nilai saat di Kelas X tetap utuh dan dapat dilihat pada Kelas X.
+ * Mengambil daftar peserta didik pada suatu Kelas/Rombel sesuai Semester & Tahun Pelajaran yang dipilih.
+ * Memastikan:
+ * - Saat melihat Tahun Ajaran 2024/2025 Kelas X, siswa yang dulu di Kelas X (meski kini sudah naik ke Kelas XI di 2025/2026) tetap tampil.
+ * - Saat melihat Tahun Ajaran 2025/2026 Kelas X, siswa angkatan 2024/2025 yang sudah naik ke Kelas XI TIDAK muncul lagi di Kelas X 2025/2026.
+ * - Saat melihat Tahun Ajaran 2025/2026 Kelas XI, baik siswa hasil kenaikan kelas maupun siswa mutasi baru di Kelas XI tampil lengkap.
  */
 export function getClassStudentsWithHistory(params: {
   classId: string;
   semesterId?: string;
   students: Student[];
   gradeEntries: GradeEntry[];
+  classes?: ClassRoom[];
+  semesters?: { id: string; academicYearId: string; semesterType?: string; name?: string }[];
 }): Student[] {
-  const { classId, semesterId, students, gradeEntries } = params;
+  const { classId, semesterId, students, gradeEntries, classes = [], semesters = [] } = params;
   if (!classId) return [];
 
-  const studentIdsWithGradesInClass = new Set<string>();
-  const studentIdsWithGradesInOtherClassThisSem = new Set<string>();
-  const studentIdsWithGradesInClassOtherSem = new Set<string>();
-
-  gradeEntries.forEach(g => {
-    if (g.classId === classId) {
-      if (!semesterId || g.semesterId === semesterId) {
-        studentIdsWithGradesInClass.add(g.studentId);
-      } else {
-        studentIdsWithGradesInClassOtherSem.add(g.studentId);
-      }
-    } else if (semesterId && g.semesterId === semesterId) {
-      studentIdsWithGradesInOtherClassThisSem.add(g.studentId);
-    }
-  });
-
-  const hasDirectSemesterGradesInClass = studentIdsWithGradesInClass.size > 0;
-
-  // Jika pada semester terpilih belum ditemukan entri tapi ada nilai kelas tersebut di semester lain, tetap kenali riwayat kelasnya
-  if (!hasDirectSemesterGradesInClass) {
-    studentIdsWithGradesInClassOtherSem.forEach(id => {
-      // Jangan masukkan jika pada semester terpilih siswa tersebut jelas-jelas sedang memiliki nilai di kelas lain (misal sudah di XI)
-      if (!studentIdsWithGradesInOtherClassThisSem.has(id)) {
-        studentIdsWithGradesInClass.add(id);
-      }
-    });
-  }
+  const targetSemObj = semesters.find(s => s.id === semesterId);
+  const targetPeriod = parsePeriodOrder(
+    targetSemObj?.academicYearId,
+    targetSemObj ? `${semesterId} ${targetSemObj.name || ''}` : semesterId
+  );
 
   const matched = students.filter(s => {
     if (s.status !== 'aktif') return false;
 
-    // 1. Jika siswa punya nilai langsung di kelas & semester ini -> pasti anggota kelas ini pada semester tersebut
-    if (hasDirectSemesterGradesInClass && studentIdsWithGradesInClass.has(s.id)) {
-      return true;
-    }
+    const studentEntries = gradeEntries.filter(g => g.studentId === s.id);
+    const { history: normalizedHistory } = normalizeStudentClassHistory({
+      student: s,
+      classes,
+      semesters,
+      gradeEntries: studentEntries,
+    });
 
-    // 2. Jika pada semester terpilih siswa punya nilai di kelas LAIN (bukan kelas ini), maka pada semester ini ia berada di kelas lain tersebut
-    if (semesterId && studentIdsWithGradesInOtherClassThisSem.has(s.id)) {
-      return false;
-    }
+    // Jika periode tahun ajaran terdeteksi (misal 2024, 2025, 2026):
+    if (targetPeriod.yearNum > 0 && normalizedHistory.length > 0) {
+      // Cari entri riwayat siswa pada tahun ajaran yang sedang dibuka
+      const yearHistoryEntries = normalizedHistory.filter(h => {
+        if (!h.classId) return false;
+        const semObj = semesters.find(sm => sm.id === h.semesterId);
+        const p = parsePeriodOrder(
+          h.academicYearId || semObj?.academicYearId,
+          `${h.semesterId} ${semObj?.name || ''}`
+        );
+        return p.yearNum === targetPeriod.yearNum;
+      });
 
-    // 3. Jika kelas & semester ini sudah punya daftar siswa bernilai sendiri:
-    // Tetap sertakan siswa yang memang ditempatkan di kelas ini pada semester/tahun ini (baik hasil kenaikan kelas maupun siswa mutasi baru),
-    // selama siswa tersebut bukan angkatan lama dari kelas yang SAMA pada tahun ajaran berbeda.
-    if (hasDirectSemesterGradesInClass) {
-      const hasHistoryInThisSem =
-        Array.isArray(s.classHistory) &&
-        s.classHistory.some(h => h.classId === classId && h.semesterId === semesterId);
-      if (hasHistoryInThisSem) return true;
-
-      if (s.currentClassId === classId && !studentIdsWithGradesInClassOtherSem.has(s.id)) {
-        return true;
+      if (yearHistoryEntries.length > 0) {
+        // Siswa tercatat di tahun ajaran ini -> ia hanya anggota kelas ini jika riwayat pada tahun ajaran ini adalah classId
+        const semSpecific = semesterId
+          ? yearHistoryEntries.filter(h => h.semesterId === semesterId)
+          : [];
+        const activeEntries = semSpecific.length > 0 ? semSpecific : yearHistoryEntries;
+        const chosen = activeEntries[activeEntries.length - 1];
+        return chosen.classId === classId;
       }
+
+      // Siswa punya classHistory di tahun ajaran LAIN, tetapi TIDAK punya catatan di tahun ajaran ini:
+      // Jangan tampilkan siswa dari tahun ajaran sebelumnya ke tahun ajaran baru!
       return false;
     }
 
-    // 4. Jika kelas ini belum punya nilai di semester terpilih:
-    if (s.currentClassId === classId) return true;
-    if (studentIdsWithGradesInClass.has(s.id)) return true;
-    if (Array.isArray(s.classHistory) && s.classHistory.some(h => h.classId === classId)) {
-      return true;
+    // Fallback jika semesterId tidak memiliki informasi tahun atau siswa belum memiliki classHistory
+    if (semesterId) {
+      const hasGradeInThisClassAndSem = studentEntries.some(
+        g => g.semesterId === semesterId && g.classId === classId
+      );
+      if (hasGradeInThisClassAndSem) return true;
+
+      const hasGradeInOtherClassThisSem = studentEntries.some(
+        g => g.semesterId === semesterId && g.classId && g.classId !== classId
+      );
+      if (hasGradeInOtherClassThisSem) return false;
     }
-    return false;
+
+    return s.currentClassId === classId;
   });
 
   return sortStudentsAlphabetically(matched);
@@ -933,8 +976,13 @@ export function getClassStudentsWithHistory(params: {
 
 /**
  * Menyelesaikan daftar peserta didik beserta Kelas/Rombel mereka yang sesuai dengan Tahun Pelajaran & Semester yang dipilih.
- * Memastikan Sub Menu Peserta Didik menampilkan daftar nama dan kelas yang 100% sinkron dengan Sub Menu Rekap & Unggah Nilai,
- * serta menjaga agar penambahan siswa mutasi baru tidak menghilangkan siswa hasil kenaikan kelas.
+ * Prinsip Utama:
+ * 1. Setiap Tahun Ajaran hanya menampilkan peserta didik yang terdaftar/ditempatkan pada Tahun Ajaran tersebut.
+ * 2. Ketika siswa Kelas X (2024/2025) naik ke Kelas XI (2025/2026):
+ *    - Di 2024/2025: mereka tampil sebagai siswa Kelas X.
+ *    - Di 2025/2026: mereka tampil sebagai siswa Kelas XI (bersama siswa mutasi Kelas XI 2025/2026),
+ *      dan TIDAK muncul lagi sebagai siswa Kelas X di 2025/2026.
+ * 3. Siswa dari Tahun Ajaran sebelumnya yang tidak berada di Tahun Ajaran terpilih tidak ditampilkan.
  */
 export function getStudentsForPeriod(params: {
   students: Student[];
@@ -978,28 +1026,11 @@ export function getStudentsForPeriod(params: {
     targetSemObj ? `${semesterId} ${targetSemObj.name || ''} ${targetSemObj.semesterType || ''}` : semesterId
   );
 
-  // Indeks semua gradeEntries per studentId serta per classId di semester/tahun terpilih
   const entriesByStudent = new Map<string, GradeEntry[]>();
-  const classGradedStudentsInSem = new Map<string, Set<string>>();
-  const classGradedStudentsInYear = new Map<string, Set<string>>();
-
   gradeEntries.forEach(g => {
     const list = entriesByStudent.get(g.studentId) || [];
     list.push(g);
     entriesByStudent.set(g.studentId, list);
-
-    if (semesterId && g.semesterId === semesterId && g.classId) {
-      const set = classGradedStudentsInSem.get(g.classId) || new Set<string>();
-      set.add(g.studentId);
-      classGradedStudentsInSem.set(g.classId, set);
-    }
-
-    const entryYearId = g.academicYearId || semesterById.get(g.semesterId)?.academicYearId || '';
-    if (effectiveYearId && entryYearId === effectiveYearId && g.classId) {
-      const set = classGradedStudentsInYear.get(g.classId) || new Set<string>();
-      set.add(g.studentId);
-      classGradedStudentsInYear.set(g.classId, set);
-    }
   });
 
   const resolvedList: PeriodStudent[] = [];
@@ -1013,223 +1044,61 @@ export function getStudentsForPeriod(params: {
       gradeEntries: studentEntries,
     });
 
-    const currCls = classById.get(s.currentClassId);
-    const currGrade = getClassGradeLevelNum(currCls, s.currentClassName);
-
-    // Cek apakah siswa adalah siswa mutasi masuk langsung ke tingkat atas (misal XI/XII) pada tahun ajaran yang lebih baru daripada periode yang sedang dilihat
-    if (targetPeriod.yearNum > 0 && currGrade >= 11) {
-      const hasLowerGradeRecord =
-        normalizedHistory.some(h => {
-          const hCls = classById.get(h.classId);
-          const hGrade = getClassGradeLevelNum(hCls, h.className);
-          return hGrade > 0 && hGrade < currGrade;
-        }) ||
-        studentEntries.some(g => {
-          const gCls = classById.get(g.classId);
-          const gGrade = getClassGradeLevelNum(gCls, g.className);
-          return gGrade > 0 && gGrade < currGrade;
-        });
-
-      if (!hasLowerGradeRecord) {
-        // Siswa mutasi masuk langsung di tingkat XI/XII: cari tahun paling awal ia tercatat
-        const recordYears: number[] = [];
-        normalizedHistory.forEach(h => {
-          const semObj = semesterById.get(h.semesterId);
-          const p = parsePeriodOrder(
-            h.academicYearId || semObj?.academicYearId,
-            `${h.semesterId} ${semObj?.name || ''}`
-          );
-          if (p.yearNum > 0) recordYears.push(p.yearNum);
-        });
-        studentEntries.forEach(g => {
-          const semObj = semesterById.get(g.semesterId);
-          const p = parsePeriodOrder(
-            g.academicYearId || semObj?.academicYearId,
-            `${g.semesterId} ${semObj?.name || ''}`
-          );
-          if (p.yearNum > 0) recordYears.push(p.yearNum);
-        });
-        if (recordYears.length > 0) {
-          const minEntryYear = Math.min(...recordYears);
-          if (targetPeriod.yearNum < minEntryYear) {
-            // Pada tahun ajaran sebelum ia mutasi masuk, ia belum terdaftar di sekolah ini
-            continue;
-          }
-        }
-      }
-    }
-
     let resolvedClassId = '';
     let resolvedClassName = '';
 
-    // PRIORITAS 1: Nilai langsung pada semesterId terpilih (100% identik dengan Rekap & Unggah Nilai)
-    if (semesterId) {
-      const semEntries = studentEntries.filter(g => g.semesterId === semesterId && g.classId);
-      if (semEntries.length > 0) {
-        const weightByClass = new Map<string, { weight: number; className: string }>();
-        semEntries.forEach(g => {
-          const prev = weightByClass.get(g.classId) || { weight: 0, className: g.className };
-          const w = g.finalScore !== null && g.finalScore !== undefined ? 10 : 1;
-          weightByClass.set(g.classId, {
-            weight: prev.weight + w,
-            className: g.className || prev.className,
-          });
-        });
-        let bestClassId = '';
-        let bestWeight = -1;
-        let bestClassName = '';
-        weightByClass.forEach((val, cId) => {
-          if (val.weight > bestWeight) {
-            bestWeight = val.weight;
-            bestClassId = cId;
-            bestClassName = val.className;
-          }
-        });
-        if (bestClassId) {
-          resolvedClassId = bestClassId;
-          resolvedClassName = classById.get(bestClassId)?.name || bestClassName || s.currentClassName;
-        }
-      }
-    }
-
-    // PRIORITAS 2: Nilai pada Tahun Pelajaran yang sama (misal Semester Ganjil & Genap di Tahun Pelajaran yang sama)
-    if (!resolvedClassId && effectiveYearId) {
-      const sameYearEntries = studentEntries.filter(g => {
-        const gYearId = g.academicYearId || semesterById.get(g.semesterId)?.academicYearId || '';
-        return gYearId === effectiveYearId && g.classId;
+    // 1. Jika siswa memiliki riwayat penempatan kelas per Tahun Ajaran (normalizedHistory):
+    if (normalizedHistory.length > 0 && targetPeriod.yearNum > 0) {
+      // Cari seluruh entri riwayat yang cocok dengan Tahun Ajaran yang sedang dibuka
+      const yearMatches = normalizedHistory.filter(h => {
+        if (!h.classId) return false;
+        if (effectiveYearId && h.academicYearId === effectiveYearId) return true;
+        const semObj = semesterById.get(h.semesterId);
+        const p = parsePeriodOrder(
+          h.academicYearId || semObj?.academicYearId,
+          `${h.semesterId} ${semObj?.name || ''}`
+        );
+        return p.yearNum === targetPeriod.yearNum;
       });
-      if (sameYearEntries.length > 0) {
-        const explicitCurrentInSem =
-          normalizedHistory.some(
-            h => h.semesterId === semesterId && h.classId === s.currentClassId
-          ) &&
-          !normalizedHistory.some(
-            h => h.semesterId === semesterId && h.classId !== s.currentClassId
-          );
 
-        if (!explicitCurrentInSem) {
-          const firstMatch = sameYearEntries[0];
-          resolvedClassId = firstMatch.classId;
-          resolvedClassName =
-            classById.get(firstMatch.classId)?.name || firstMatch.className || s.currentClassName;
-        }
-      }
-    }
-
-    // PRIORITAS 3: Catatan classHistory (yang sudah dinormalisasi) pada semesterId atau academicYearId terpilih
-    if (!resolvedClassId && normalizedHistory.length > 0) {
-      const semMatches = semesterId
-        ? normalizedHistory.filter(h => h.semesterId === semesterId && h.classId)
-        : [];
-      if (semMatches.length > 0) {
-        const chosen = semMatches[semMatches.length - 1];
+      if (yearMatches.length > 0) {
+        // Utamakan yang cocok dengan semesterId; jika ada lebih dari satu pada tahun yang sama, ambil kelas dengan tingkat tertinggi / terbaru
+        const semMatches = semesterId
+          ? yearMatches.filter(h => h.semesterId === semesterId)
+          : [];
+        const candidates = semMatches.length > 0 ? semMatches : yearMatches;
+        const sortedCandidates = [...candidates].sort((a, b) => {
+          const gradeA = getClassGradeLevelNum(classById.get(a.classId), a.className);
+          const gradeB = getClassGradeLevelNum(classById.get(b.classId), b.className);
+          return gradeA - gradeB;
+        });
+        const chosen = sortedCandidates[sortedCandidates.length - 1];
         resolvedClassId = chosen.classId;
         resolvedClassName =
           classById.get(chosen.classId)?.name || chosen.className || s.currentClassName;
-      } else if (effectiveYearId) {
-        const yearMatches = normalizedHistory.filter(h => {
-          if (!h.classId) return false;
-          if (h.academicYearId === effectiveYearId) return true;
-          const semObj = semesterById.get(h.semesterId);
-          const p = parsePeriodOrder(
-            h.academicYearId || semObj?.academicYearId,
-            `${h.semesterId} ${semObj?.name || ''}`
-          );
-          return targetPeriod.yearNum > 0 && p.yearNum === targetPeriod.yearNum;
-        });
-        if (yearMatches.length > 0) {
-          const chosen = yearMatches[yearMatches.length - 1];
-          resolvedClassId = chosen.classId;
+      } else {
+        // Siswa memiliki catatan Tahun Ajaran di normalizedHistory, tetapi TIDAK terdaftar pada Tahun Ajaran yang sedang dipilih.
+        // Jangan bocorkan data siswa dari Tahun Ajaran lain ke Tahun Ajaran ini.
+        continue;
+      }
+    } else if (normalizedHistory.length === 0) {
+      // 2. Fallback hanya untuk data siswa lama yang sama sekali belum memiliki array classHistory
+      if (semesterId) {
+        const semEntries = studentEntries.filter(g => g.semesterId === semesterId && g.classId);
+        if (semEntries.length > 0) {
+          resolvedClassId = semEntries[0].classId;
           resolvedClassName =
-            classById.get(chosen.classId)?.name || chosen.className || s.currentClassName;
+            classById.get(semEntries[0].classId)?.name || semEntries[0].className || s.currentClassName;
         }
+      }
+      if (!resolvedClassId) {
+        resolvedClassId = s.currentClassId;
+        resolvedClassName = classById.get(s.currentClassId)?.name || s.currentClassName;
       }
     }
 
-    // PRIORITAS 4: Perbandingan Linimasa (Timeline) terhadap Riwayat Kelas Sebelum Naik Kelas
     if (!resolvedClassId) {
-      const historicalRecords: {
-        classId: string;
-        className: string;
-        yearNum: number;
-        order: number;
-      }[] = [];
-
-      studentEntries.forEach(g => {
-        if (g.classId && g.classId !== s.currentClassId) {
-          const semObj = semesterById.get(g.semesterId);
-          const p = parsePeriodOrder(
-            g.academicYearId || semObj?.academicYearId,
-            `${g.semesterId} ${semObj?.name || ''}`
-          );
-          historicalRecords.push({
-            classId: g.classId,
-            className: classById.get(g.classId)?.name || g.className,
-            yearNum: p.yearNum,
-            order: p.order,
-          });
-        }
-      });
-
-      normalizedHistory.forEach(h => {
-        if (h.classId && h.classId !== s.currentClassId) {
-          const semObj = semesterById.get(h.semesterId);
-          const p = parsePeriodOrder(
-            h.academicYearId || semObj?.academicYearId,
-            `${h.semesterId} ${semObj?.name || ''}`
-          );
-          historicalRecords.push({
-            classId: h.classId,
-            className: classById.get(h.classId)?.name || h.className,
-            yearNum: p.yearNum,
-            order: p.order,
-          });
-        }
-      });
-
-      if (historicalRecords.length > 0 && targetPeriod.order > 0) {
-        historicalRecords.sort((a, b) => b.order - a.order);
-        const latestOld = historicalRecords[0];
-        if (
-          latestOld.yearNum > 0 &&
-          (targetPeriod.yearNum < latestOld.yearNum ||
-            (targetPeriod.yearNum === latestOld.yearNum && targetPeriod.order <= latestOld.order))
-        ) {
-          resolvedClassId = latestOld.classId;
-          resolvedClassName = latestOld.className || s.currentClassName;
-        }
-      }
-    }
-
-    // PRIORITAS 5: Default ke kelas aktif saat ini (currentClassId)
-    if (!resolvedClassId) {
-      resolvedClassId = s.currentClassId;
-      resolvedClassName = classById.get(s.currentClassId)?.name || s.currentClassName;
-    }
-
-    // FILTER PEMISAHAN ANGKATAN PADA KELAS YANG SAMA ANTAR TAHUN AJARAN:
-    // Hanya pisahkan jika siswa memiliki nilai pada KELAS YANG SAMA (resolvedClassId) di tahun ajaran LAIN,
-    // sehingga siswa hasil kenaikan kelas (yang punya nilai di kelas LAMA berbeda, misal X-A) maupun siswa mutasi baru
-    // TIDAK PERNAH hilang saat berada di kelas baru (misal XI-A).
-    const gradedSetSem = classGradedStudentsInSem.get(resolvedClassId);
-    const gradedSetYear = classGradedStudentsInYear.get(resolvedClassId);
-    const classHasGradedCohortInTargetPeriod =
-      (gradedSetSem && gradedSetSem.size > 0) || (gradedSetYear && gradedSetYear.size > 0);
-
-    if (classHasGradedCohortInTargetPeriod) {
-      const studentHasGradeInTargetSem = Boolean(gradedSetSem && gradedSetSem.has(s.id));
-      const studentHasGradeInTargetYear = Boolean(gradedSetYear && gradedSetYear.has(s.id));
-
-      if (!studentHasGradeInTargetSem && !studentHasGradeInTargetYear) {
-        const studentHasGradeInSameClassOtherYear = studentEntries.some(g => {
-          if (g.classId !== resolvedClassId) return false;
-          const gYearId = g.academicYearId || semesterById.get(g.semesterId)?.academicYearId || '';
-          return Boolean(effectiveYearId && gYearId && gYearId !== effectiveYearId);
-        });
-        if (studentHasGradeInSameClassOtherYear) {
-          continue;
-        }
-      }
+      continue;
     }
 
     resolvedList.push({
@@ -1239,7 +1108,7 @@ export function getStudentsForPeriod(params: {
       currentClassName: resolvedClassName,
       latestClassId: s.currentClassId,
       latestClassName: s.currentClassName,
-      isHistoricalPeriodClass: resolvedClassId !== s.currentClassId,
+      isHistoricalPeriodClass: false,
     });
   }
 
@@ -1271,14 +1140,18 @@ export function downloadAllSubjectsTemplate(params: {
 
   const sortedAllSubjects = sortSubjects(subjects);
   const wb = XLSX.utils.book_new();
+  const periodStudentsForTemplate = getStudentsForPeriod({
+    students,
+    classes,
+    gradeEntries: [],
+    academicYearId: semesterName,
+    semesterId: semesterName,
+  });
 
   classes.forEach(cls => {
     const classStudents = sortStudentsAlphabetically(
-      students.filter(
-        s =>
-          s.status === 'aktif' &&
-          (s.currentClassId === cls.id ||
-            (Array.isArray(s.classHistory) && s.classHistory.some(h => h.classId === cls.id)))
+      periodStudentsForTemplate.filter(
+        s => s.status === 'aktif' && s.currentClassId === cls.id
       )
     );
 

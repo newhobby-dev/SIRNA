@@ -93,15 +93,17 @@ export const SchoolRecapView: React.FC<SchoolRecapViewProps> = ({ initialMode = 
   const currentClass = classes.find(c => c.id === selectedClassId);
   const activeSemester = semesters.find(s => s.id === selectedSemesterId) || currentSemester;
 
-  // Students in the chosen class (including historical students who were in this class before promotion), sorted alphabetically
+  // Students in the chosen class for the selected Academic Year & Semester, sorted alphabetically
   const rawClassStudents = useMemo(() => {
     return getClassStudentsWithHistory({
       classId: selectedClassId,
       semesterId: selectedSemesterId,
       students,
       gradeEntries,
+      classes,
+      semesters,
     });
-  }, [students, gradeEntries, selectedClassId, selectedSemesterId]);
+  }, [students, gradeEntries, classes, semesters, selectedClassId, selectedSemesterId]);
 
   const classStudents = useMemo(() => {
     if (searchQuery.trim()) {

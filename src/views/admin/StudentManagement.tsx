@@ -166,10 +166,31 @@ export const StudentManagement: React.FC = () => {
 
   // Students in chosen source class for promotion (sorted A-Z by name)
   const sourceStudents = useMemo(() => {
+    const effectiveSrcYear = promotionSourceYearId || selectedYearId;
+    const srcSemesters = semesters.filter(s => s.academicYearId === effectiveSrcYear);
+    const srcSemId = srcSemesters[0]?.id || '';
+    const periodList = getStudentsForPeriod({
+      students,
+      classes,
+      semesters,
+      gradeEntries,
+      academicYearId: effectiveSrcYear,
+      semesterId: srcSemId,
+    });
+    const inSourcePeriod = periodList.filter(
+      s => s.currentClassId === sourceClassId && s.status === 'aktif'
+    );
+    const unpromoted = inSourcePeriod.filter(s => {
+      const raw = students.find(r => r.id === s.id);
+      return !raw || raw.currentClassId === sourceClassId;
+    });
+    if (unpromoted.length > 0) {
+      return sortStudentsAlphabetically(unpromoted);
+    }
     return sortStudentsAlphabetically(
       students.filter(s => s.currentClassId === sourceClassId && s.status === 'aktif')
     );
-  }, [students, sourceClassId]);
+  }, [students, classes, semesters, gradeEntries, sourceClassId, promotionSourceYearId, selectedYearId]);
 
   // Students who were previously in sourceClassId and have already been promoted to another class
   const promotedFromSourceStudents = useMemo(() => {
@@ -287,48 +308,7 @@ export const StudentManagement: React.FC = () => {
     let result: PeriodStudent[] = periodStudents;
 
     if (selectedClassFilter !== 'ALL') {
-      const directMatches = periodStudents.filter(s => s.currentClassId === selectedClassFilter);
-      const targetCls = classes.find(c => c.id === selectedClassFilter);
-      const historyMatches = getClassStudentsWithHistory({
-        classId: selectedClassFilter,
-        semesterId: selectedSemesterId,
-        students,
-        gradeEntries,
-      });
-
-      const mergedById = new Map<string, PeriodStudent>();
-      directMatches.forEach(s => mergedById.set(s.id, s));
-
-      // Pastikan penambahan siswa mutasi baru tidak pernah menyembunyikan siswa hasil kenaikan kelas di kelas yang sama
-      historyMatches.forEach(s => {
-        if (mergedById.has(s.id)) return;
-        const periodEntry = periodStudents.find(p => p.id === s.id);
-        if (!periodEntry) return;
-
-        const hasExplicitGradeInOtherClassThisSem = gradeEntries.some(
-          g =>
-            g.studentId === s.id &&
-            g.semesterId === selectedSemesterId &&
-            g.classId &&
-            g.classId !== selectedClassFilter
-        );
-
-        if (
-          directMatches.length === 0 ||
-          (s.currentClassId === selectedClassFilter && !hasExplicitGradeInOtherClassThisSem)
-        ) {
-          mergedById.set(s.id, {
-            ...s,
-            currentClassId: selectedClassFilter,
-            currentClassName: targetCls?.name || s.currentClassName,
-            latestClassId: s.currentClassId,
-            latestClassName: s.currentClassName,
-            isHistoricalPeriodClass: s.currentClassId !== selectedClassFilter,
-          });
-        }
-      });
-
-      result = Array.from(mergedById.values());
+      result = periodStudents.filter(s => s.currentClassId === selectedClassFilter);
     }
 
     if (selectedStatusFilter !== 'ALL') {
@@ -349,7 +329,7 @@ export const StudentManagement: React.FC = () => {
       return sortStudentsByClassAndName(result, classes);
     }
     return sortStudentsAlphabetically(result);
-  }, [periodStudents, students, classes, gradeEntries, selectedSemesterId, selectedClassFilter, selectedStatusFilter, searchQuery]);
+  }, [periodStudents, classes, selectedClassFilter, selectedStatusFilter, searchQuery]);
 
   // Compute per-class alphabetical rank/order number (1, 2, 3... inside each class)
   const classSequenceMap = useMemo(() => {
@@ -481,33 +461,7 @@ export const StudentManagement: React.FC = () => {
 
   // Ekspor Daftar Nama Peserta Didik Terurut Abjad (A-Z) untuk Kelas Tertentu sesuai Tahun Pelajaran & Semester aktif
   const handleExportSingleClassByAlphabet = (classId: string) => {
-    const directMatches = periodStudents.filter(s => s.currentClassId === classId);
-    const targetCls = classes.find(c => c.id === classId);
-    const historyMatches = getClassStudentsWithHistory({
-      classId,
-      semesterId: selectedSemesterId,
-      students,
-      gradeEntries,
-    });
-
-    const mergedById = new Map<string, PeriodStudent>();
-    directMatches.forEach(s => mergedById.set(s.id, s));
-    historyMatches.forEach(s => {
-      if (mergedById.has(s.id)) return;
-      const periodEntry = periodStudents.find(p => p.id === s.id);
-      if (!periodEntry) return;
-      const hasExplicitGradeInOtherClassThisSem = gradeEntries.some(
-        g => g.studentId === s.id && g.semesterId === selectedSemesterId && g.classId && g.classId !== classId
-      );
-      if (directMatches.length === 0 || (s.currentClassId === classId && !hasExplicitGradeInOtherClassThisSem)) {
-        mergedById.set(s.id, {
-          ...s,
-          currentClassId: classId,
-          currentClassName: targetCls?.name || s.currentClassName,
-        });
-      }
-    });
-    const classStudentsToExport = Array.from(mergedById.values());
+    const classStudentsToExport = periodStudents.filter(s => s.currentClassId === classId);
 
     const baseStudents =
       selectedStatusFilter === 'ALL'
@@ -896,17 +850,7 @@ export const StudentManagement: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3 px-3 font-medium text-slate-700">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-bold text-slate-800">{student.currentClassName}</span>
-                            {student.isHistoricalPeriodClass && student.latestClassName && (
-                              <span
-                                className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold"
-                                title={`Pada periode ini di ${student.currentClassName}, saat ini berada di ${student.latestClassName}`}
-                              >
-                                Kini: {student.latestClassName}
-                              </span>
-                            )}
-                          </div>
+                          <span className="font-bold text-slate-800">{student.currentClassName}</span>
                         </td>
                         <td className="py-3 px-3 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${

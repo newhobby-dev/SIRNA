@@ -129,21 +129,9 @@ export const RankingsView: React.FC<RankingsViewProps> = ({
   // Compute items list based on mode
   const rankingItems = useMemo(() => {
     if (rankingType === 'class') {
-      let classStudents = periodStudents.filter(
+      const classStudents = periodStudents.filter(
         s => s.status === 'aktif' && s.currentClassId === selectedClassId
       );
-      if (classStudents.length === 0 && selectedClassId) {
-        classStudents = getClassStudentsWithHistory({
-          classId: selectedClassId,
-          semesterId: selectedSemesterId,
-          students,
-          gradeEntries,
-        }).map(s => ({
-          ...s,
-          currentClassId: selectedClassId,
-          currentClassName: currentClass?.name || s.currentClassName,
-        }));
-      }
 
       return classStudents.map(st => {
         const summary =
